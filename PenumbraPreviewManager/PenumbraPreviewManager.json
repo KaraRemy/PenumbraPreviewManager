@@ -10,5 +10,7 @@
     "image",
     "manager",
     "xivmodarchive"
-  ]
+  ],
+  "DalamudApiLevel": 15,
+  "Version": "1.0.0.0"
 }

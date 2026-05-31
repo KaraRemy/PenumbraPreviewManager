@@ -1,4 +1,20 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+
+# IDE and Editor files
 .vs/
-obj/
-bin/
+.idea/
 *.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local build artifacts & versions (now centralized in TomokPlugins)
+latest.zip
+v.*/
+[Vv].[0-9]*/
+
+# OS generated files
+.DS_Store
+Thumbs.db
