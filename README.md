@@ -31,6 +31,14 @@ To install the **Penumbra Preview Manager** using my custom repository:
 
 ---
 
+## For Mod Creators
+
+Either manually add a preview.png to your .pmp file (with winrar) - or use the penumbra "Export Mod" feature.
+
+As long as the preview.png image ends up in the Mod folder (same level as the default_mod.json), the plugin will detect it on clicking "Refresh Mod List".
+
+---
+
 ## Developer / Building Instructions
 
 If you wish to build the source code manually:
