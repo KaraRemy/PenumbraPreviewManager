@@ -14,7 +14,7 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(400, 480);
+        Size = new Vector2(400, 550);
         SizeCondition = ImGuiCond.Always;
 
         configuration = plugin.Configuration;
@@ -136,6 +136,16 @@ public class ConfigWindow : Window, IDisposable
                 configuration.HideModList = hideModList;
                 configuration.Save();
             }
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Support & Community");
+        if (ImGui.Button("Join Support Discord"))
+        {
+            Dalamud.Utility.Util.OpenLink("https://discord.gg/PvxW4mXaWp");
         }
     }
 }

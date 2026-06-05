@@ -37,6 +37,13 @@ To install the **Penumbra Preview Manager** using my custom repository:
 
 ---
 
+## Support & Community
+
+If you need help, want to report a bug, or suggest new features, join my support Discord server:
+📢 **[Join the Support Discord](https://discord.gg/PvxW4mXaWp)**
+
+---
+
 ## For Mod Creators
 
 ### Main Mod Previews
