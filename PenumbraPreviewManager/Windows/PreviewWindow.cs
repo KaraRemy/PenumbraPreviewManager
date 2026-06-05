@@ -31,6 +31,14 @@ public class PreviewWindow : Window, IDisposable
                 localImagePathInput = string.Empty;
                 grabUrlInput = value?.Website ?? string.Empty;
                 statusMessage = string.Empty;
+
+                // Reset option previews UI state
+                selectedGroupName = string.Empty;
+                selectedOptionName = string.Empty;
+                optionLocalImagePathInput = string.Empty;
+                optionGrabUrlInput = string.Empty;
+                optionStatusMessage = string.Empty;
+                selectedUnassignedIndex = 0;
             }
         }
     }
@@ -40,6 +48,17 @@ public class PreviewWindow : Window, IDisposable
     private string grabUrlInput = string.Empty;
     private string statusMessage = string.Empty;
     private bool isWorking = false;
+
+    // Option previews UI state
+    private string selectedGroupName = string.Empty;
+    private string selectedOptionName = string.Empty;
+    private string optionLocalImagePathInput = string.Empty;
+    private string optionGrabUrlInput = string.Empty;
+    private string optionStatusMessage = string.Empty;
+    private bool optionIsWorking = false;
+    private int selectedUnassignedIndex = 0;
+
+
 
     public PreviewWindow(Plugin plugin)
         : base("Penumbra Preview Manager###PPM_Main")
@@ -51,6 +70,7 @@ public class PreviewWindow : Window, IDisposable
         };
         
         Size = new Vector2(850, 600);
+        SizeCondition = ImGuiCond.FirstUseEver;
         this.plugin = plugin;
 
         TitleBarButtons.Add(new TitleBarButton
@@ -94,6 +114,12 @@ public class PreviewWindow : Window, IDisposable
         {
             ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "No mods detected or Penumbra Mod Directory is not configured!");
             ImGui.TextUnformatted($"Mod Directory Path: {plugin.DetectedModDirectory ?? "Unknown"}");
+            return;
+        }
+
+        if (plugin.Configuration.AutoSyncSelection && plugin.Configuration.HideModList)
+        {
+            DrawModDetails();
             return;
         }
 
@@ -195,7 +221,14 @@ public class PreviewWindow : Window, IDisposable
     {
         if (selectedMod == null)
         {
-            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Select a mod from the list to manage its preview.");
+            if (plugin.Configuration.AutoSyncSelection && plugin.Configuration.HideModList)
+            {
+                ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Mod list is hidden because auto-sync is enabled. Please select a mod inside Penumbra to load it here.");
+            }
+            else
+            {
+                ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "Select a mod from the list to manage its preview.");
+            }
             return;
         }
 
@@ -444,10 +477,377 @@ public class PreviewWindow : Window, IDisposable
         }
 
         // Status Messages
+
         if (!string.IsNullOrEmpty(statusMessage))
         {
             ImGui.Spacing();
             ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f), statusMessage);
         }
+
+        // Option Previews Area below a divider
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Mod Option Previews");
+
+        // Fetch settings groups from Penumbra via our IPC helper
+        var settings = plugin.GetAvailableSettings(selectedMod.FolderName);
+        if (settings == null || settings.Count == 0)
+        {
+            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "This mod does not have any setting groups configured in Penumbra.");
+            return;
+        }
+
+        // Group selector dropdown
+        var groupNames = settings.Keys.ToArray();
+        
+        // Ensure selectedGroupName is valid, else default to first group
+        if (string.IsNullOrEmpty(selectedGroupName) || !settings.ContainsKey(selectedGroupName))
+        {
+            selectedGroupName = groupNames[0];
+            selectedOptionName = string.Empty;
+        }
+
+        int groupIndex = Array.IndexOf(groupNames, selectedGroupName);
+        ImGui.TextUnformatted("Select Option Group:");
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.Combo("##OptionGroupSelector", ref groupIndex, groupNames, groupNames.Length))
+        {
+            selectedGroupName = groupNames[groupIndex];
+            selectedOptionName = string.Empty;
+            optionLocalImagePathInput = string.Empty;
+            optionGrabUrlInput = string.Empty;
+            optionStatusMessage = string.Empty;
+        }
+
+        // Option selector dropdown
+        var options = settings[selectedGroupName].Options;
+        if (options == null || options.Length == 0)
+        {
+            ImGui.TextColored(new Vector4(0.8f, 0.8f, 0.8f, 1f), "No options available in this group.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(selectedOptionName) || !options.Contains(selectedOptionName))
+        {
+            selectedOptionName = options[0];
+            optionLocalImagePathInput = string.Empty;
+            optionGrabUrlInput = string.Empty;
+            optionStatusMessage = string.Empty;
+        }
+
+        int optionIndex = Array.IndexOf(options, selectedOptionName);
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Select Option:");
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.Combo("##OptionSelector", ref optionIndex, options, options.Length))
+        {
+            selectedOptionName = options[optionIndex];
+            optionLocalImagePathInput = string.Empty;
+            optionGrabUrlInput = string.Empty;
+            optionStatusMessage = string.Empty;
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        // Load the manifest to see if a preview image is registered for this option
+        var manifest = plugin.LoadOptionManifest(selectedMod.FullPath);
+        var key = $"{selectedGroupName}/{selectedOptionName}";
+        string? imagePath = null;
+        bool hasOptionPreview = manifest.OptionImages.TryGetValue(key, out imagePath) && !string.IsNullOrEmpty(imagePath) && File.Exists(Path.Combine(selectedMod.FullPath, imagePath));
+
+        if (hasOptionPreview)
+        {
+            var fullImagePath = Path.Combine(selectedMod.FullPath, imagePath!);
+            ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.2f, 1f), $"✓ Preview Image Found for [{selectedOptionName}]:");
+            
+            var texture = Plugin.TextureProvider.GetFromFile(fullImagePath).GetWrapOrDefault();
+            if (texture != null)
+            {
+                var colWidth = ImGui.GetContentRegionAvail().X;
+                float aspect = 1f; // 1:1 default for options
+                if (texture.Width > 0 && texture.Height > 0)
+                {
+                    aspect = (float)texture.Width / texture.Height;
+                }
+                var drawHeight = colWidth / aspect;
+                
+                // Cap height to make it fit nicely
+                if (drawHeight > 180)
+                {
+                    drawHeight = 180;
+                    colWidth = drawHeight * aspect;
+                }
+                
+                ImGui.Image(texture.Handle, new Vector2(colWidth, drawHeight));
+            }
+            else
+            {
+                ImGui.TextColored(new Vector4(1f, 0.5f, 0.5f, 1f), "[Image file found but could not be loaded into game texture wrapper]");
+            }
+
+            if (ImGui.Button("Remove Option Preview Image##RemoveOptionImg"))
+            {
+                plugin.ClearOptionImage(selectedMod, selectedGroupName, selectedOptionName);
+                optionStatusMessage = "Option preview image removed.";
+            }
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(0.9f, 0.5f, 0.2f, 1f), $"✗ No Preview Image Found for [{selectedOptionName}]");
+            
+            ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.1f, 0.1f, 0.1f, 0.5f));
+            using (var optionAddHelp = ImRaii.Child("NoOptionPreviewHelp", new Vector2(0, 45), true, ImGuiWindowFlags.NoScrollbar))
+            {
+                if (optionAddHelp.Success)
+                {
+                    string cropText = plugin.Configuration.OptionCrop switch
+                    {
+                        OptionCropAspect.Aspect16_9 => "16:9",
+                        OptionCropAspect.NoCrop => "No Crop (Preserve Aspect)",
+                        OptionCropAspect.Aspect1_1 or _ => "1:1 Square"
+                    };
+                    ImGui.TextWrapped($"Add a preview image for the option '{selectedOptionName}' (default crop: {cropText}).");
+
+                }
+            }
+            ImGui.PopStyleColor();
+        }
+
+        ImGui.Spacing();
+
+        // 1. Grab Option Image from URL
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Grab Option Image from URL");
+        ImGui.InputTextWithHint("##OptionGrabUrl", "Paste URL (e.g. XIVModArchive or direct image link)", ref optionGrabUrlInput, 500);
+        ImGui.SameLine();
+
+        if (optionIsWorking)
+        {
+            ImGui.TextUnformatted("Grabbing...");
+        }
+        else
+        {
+            if (ImGui.Button("Grab & Crop Option Image##GrabOptionBtn"))
+            {
+                if (!string.IsNullOrEmpty(optionGrabUrlInput))
+                {
+                    optionIsWorking = true;
+                    optionStatusMessage = "Downloading and processing option image... please wait.";
+                    
+                    var targetUrl = optionGrabUrlInput;
+                    var targetGroup = selectedGroupName;
+                    var targetOption = selectedOptionName;
+                    var targetMod = selectedMod;
+                    
+                    Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var result = await plugin.GrabOptionImageFromUrlAsync(targetMod, targetGroup, targetOption, targetUrl);
+                            optionIsWorking = false;
+                            if (result == GrabResult.Success)
+                            {
+                                optionStatusMessage = "Successfully downloaded, cropped, and saved option preview!";
+                            }
+                            else if (result == GrabResult.NsfwRestricted)
+                            {
+                                optionStatusMessage = "Download failed: Content is NSFW/Restricted on XIVModArchive.\n\n" +
+                                                      "Please save the image manually, copy it to clipboard, and click 'Paste Option Image' below.";
+                            }
+                            else
+                            {
+                                optionStatusMessage = "Failed to grab option image. Please verify the URL.";
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            optionIsWorking = false;
+                            optionStatusMessage = $"Error: {ex.Message}";
+                        }
+                    });
+                }
+                else
+                {
+                    optionStatusMessage = "Please enter a valid URL.";
+                }
+            }
+        }
+
+        ImGui.Spacing();
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Set Option Local Image File / Clipboard");
+        ImGui.InputTextWithHint("##OptionLocalPath", "Paste local path...", ref optionLocalImagePathInput, 500);
+        ImGui.SameLine();
+
+        if (ImGui.Button("Browse...##BrowseOptionImg"))
+        {
+            plugin.FileDialogManager.OpenFileDialog(
+                "Select Option Preview Image", 
+                "Image Files{.png,.jpg,.jpeg,.webp,.bmp,.gif}", 
+                (success, path) =>
+                {
+                    if (success)
+                    {
+                        optionLocalImagePathInput = path;
+                    }
+                });
+        }
+        ImGui.SameLine();
+
+        if (ImGui.Button("Set Option Image##SetOptionBtn"))
+        {
+            if (File.Exists(optionLocalImagePathInput))
+            {
+                try
+                {
+                    using (var image = System.Drawing.Image.FromFile(optionLocalImagePathInput))
+                    {
+                        var relativePath = plugin.SaveOptionImage(selectedMod, selectedGroupName, selectedOptionName, image);
+                        if (relativePath != null)
+                        {
+                            optionStatusMessage = "Option image set successfully!";
+                            optionLocalImagePathInput = string.Empty;
+                        }
+                        else
+                        {
+                            optionStatusMessage = "Failed to process and save option image.";
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    optionStatusMessage = $"Error: {ex.Message}";
+                }
+            }
+            else
+            {
+                optionStatusMessage = "File does not exist.";
+            }
+        }
+
+        if (ImGui.Button("Paste Option Image from Clipboard##PasteOptionBtn"))
+        {
+            try
+            {
+                using (var clipboardImage = ClipboardHelper.GetImageFromClipboard())
+                {
+                    if (clipboardImage != null)
+                    {
+                        var relativePath = plugin.SaveOptionImage(selectedMod, selectedGroupName, selectedOptionName, clipboardImage);
+                        if (relativePath != null)
+                        {
+                            optionStatusMessage = "Image successfully pasted from clipboard, cropped/scaled, and registered!";
+                        }
+                        else
+                        {
+                            optionStatusMessage = "Failed to save option image.";
+                        }
+                    }
+                    else
+                    {
+                        optionStatusMessage = "No image found in clipboard! Please copy an image first.";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                optionStatusMessage = $"Clipboard paste failed: {ex.Message}";
+            }
+        }
+
+        // 3. Assign from Unassigned Images in ppm/ folder
+        var assignedImages = manifest.OptionImages.Values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unassignedImages = new List<string>();
+        var ppmDir = Path.Combine(selectedMod.FullPath, "ppm");
+        if (Directory.Exists(ppmDir))
+        {
+            try
+            {
+                var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif" };
+                var files = Directory.GetFiles(ppmDir)
+                    .Where(file => allowedExtensions.Contains(Path.GetExtension(file)));
+                foreach (var file in files)
+                {
+                    var relativePath = Path.Combine("ppm", Path.GetFileName(file)).Replace('\\', '/');
+                    if (!assignedImages.Contains(relativePath))
+                    {
+                        unassignedImages.Add(relativePath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"Failed to scan ppm folder: {ex.Message}");
+            }
+        }
+
+        ImGui.Spacing();
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Assign Unassigned Image from ppm/");
+
+        if (unassignedImages.Count > 0)
+        {
+            if (selectedUnassignedIndex >= unassignedImages.Count)
+            {
+                selectedUnassignedIndex = 0;
+            }
+            
+            var displayNames = unassignedImages.Select(p => Path.GetFileName(p)).ToArray();
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.Combo("##UnassignedCombo", ref selectedUnassignedIndex, displayNames, displayNames.Length))
+            {
+                // Unassigned image selection changed
+            }
+            
+            // Show preview of selected unassigned image
+            var chosenPath = unassignedImages[selectedUnassignedIndex];
+            var fullImagePath = Path.Combine(selectedMod.FullPath, chosenPath);
+            var texture = Plugin.TextureProvider.GetFromFile(fullImagePath).GetWrapOrDefault();
+            if (texture != null)
+            {
+                ImGui.Spacing();
+                var colWidth = ImGui.GetContentRegionAvail().X;
+                float aspect = 1f;
+                if (texture.Width > 0 && texture.Height > 0)
+                {
+                    aspect = (float)texture.Width / texture.Height;
+                }
+                var drawHeight = colWidth / aspect;
+                if (drawHeight > 180)
+                {
+                    drawHeight = 180;
+                    colWidth = drawHeight * aspect;
+                }
+                ImGui.Image(texture.Handle, new Vector2(colWidth, drawHeight));
+            }
+            
+            ImGui.Spacing();
+            if (ImGui.Button("Assign Selected Image##AssignUnassignedBtn"))
+            {
+                // Clear old preview image (handles deletion of old asset if registered)
+                plugin.ClearOptionImage(selectedMod, selectedGroupName, selectedOptionName);
+                
+                // Set the chosen path in manifest
+                var optionManifest = plugin.LoadOptionManifest(selectedMod.FullPath);
+                var optionKey = $"{selectedGroupName}/{selectedOptionName}";
+                optionManifest.OptionImages[optionKey] = chosenPath;
+                plugin.SaveOptionManifest(selectedMod.FullPath, optionManifest);
+                
+                optionStatusMessage = $"Assigned image '{displayNames[selectedUnassignedIndex]}' to '{selectedOptionName}'!";
+                selectedUnassignedIndex = 0;
+            }
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), "No unassigned images found in ppm/ folder.");
+        }
+
+        if (!string.IsNullOrEmpty(optionStatusMessage))
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f), optionStatusMessage);
+        }
+
     }
 }

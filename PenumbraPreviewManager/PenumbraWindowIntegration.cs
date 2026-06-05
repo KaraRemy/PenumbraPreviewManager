@@ -6,9 +6,11 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface;
 using Dalamud.Interface.Utility;
 using Penumbra.Api.Helpers;
 using Penumbra.Api.IpcSubscribers;
+
 
 namespace PenumbraPreviewManager;
 
@@ -16,9 +18,16 @@ internal class PenumbraWindowIntegration : IDisposable
 {
     private readonly Plugin plugin;
     private EventSubscriber<string, float, float>? preSettingsTabBarDrawEvent;
+    private EventSubscriber<string>? preSettingsDrawEvent;
+    private EventSubscriber<string>? postSettingsDrawEvent;
+
+    public bool IsDrawingPenumbraSettings { get; private set; }
+    public string? ActiveDrawingModPath { get; private set; }
+    private IReadOnlyDictionary<string, (string[] Options, Penumbra.Api.Enums.GroupType Type)>? activeModSettings;
 
     private string grabUrlInput = string.Empty;
     private ModInfo? activePopupMod;
+
 
     public PenumbraWindowIntegration(Plugin plugin)
     {
@@ -30,10 +39,12 @@ internal class PenumbraWindowIntegration : IDisposable
         try
         {
             preSettingsTabBarDrawEvent = PreSettingsTabBarDraw.Subscriber(Plugin.PluginInterface, PreSettingsTabBarDrawCallback);
+            preSettingsDrawEvent = PreSettingsDraw.Subscriber(Plugin.PluginInterface, PreSettingsDrawCallback);
+            postSettingsDrawEvent = PostSettingsDraw.Subscriber(Plugin.PluginInterface, PostSettingsDrawCallback);
         }
         catch (Exception ex)
         {
-            Plugin.Log.Warning($"Failed to subscribe to Penumbra PreSettingsTabBarDraw IPC: {ex.Message}");
+            Plugin.Log.Warning($"Failed to subscribe to Penumbra draw IPC events: {ex.Message}");
         }
     }
 
@@ -41,7 +52,12 @@ internal class PenumbraWindowIntegration : IDisposable
     {
         preSettingsTabBarDrawEvent?.Dispose();
         preSettingsTabBarDrawEvent = null;
+        preSettingsDrawEvent?.Dispose();
+        preSettingsDrawEvent = null;
+        postSettingsDrawEvent?.Dispose();
+        postSettingsDrawEvent = null;
     }
+
 
     public void Dispose()
     {
@@ -298,4 +314,168 @@ internal class PenumbraWindowIntegration : IDisposable
             ImGui.EndPopup();
         }
     }
+
+    private void PreSettingsDrawCallback(string directory)
+    {
+        ActiveDrawingModPath = directory;
+        IsDrawingPenumbraSettings = true;
+        
+        var folderName = Path.GetFileName(directory);
+        activeModSettings = plugin.GetAvailableSettings(folderName);
+    }
+
+    private void PostSettingsDrawCallback(string directory)
+    {
+        IsDrawingPenumbraSettings = false;
+        ActiveDrawingModPath = null;
+        activeModSettings = null;
+    }
+
+    public void OnCheckboxDraw(string label)
+    {
+        if (activeModSettings == null || string.IsNullOrEmpty(ActiveDrawingModPath)) return;
+
+        var optionName = label;
+        var hashIndex = label.IndexOf("##");
+        if (hashIndex >= 0)
+        {
+            optionName = label.Substring(0, hashIndex);
+        }
+
+        foreach (var kvp in activeModSettings)
+        {
+            var groupName = kvp.Key;
+            var options = kvp.Value.Options;
+            if (options.Contains(optionName, StringComparer.OrdinalIgnoreCase))
+            {
+                var folderName = Path.GetFileName(ActiveDrawingModPath);
+                var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+                if (mod == null) return;
+
+                var manifest = plugin.LoadOptionManifest(mod.FullPath);
+                var key = $"{groupName}/{optionName}";
+                if (manifest.OptionImages.TryGetValue(key, out var relativePath))
+                {
+                    var fullImagePath = Path.Combine(mod.FullPath, relativePath);
+                    if (File.Exists(fullImagePath))
+                    {
+                        DrawPreviewTriggerIcon(fullImagePath, optionName);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    public void OnBeginComboDraw(string label, string previewValue)
+    {
+        if (activeModSettings == null || string.IsNullOrEmpty(ActiveDrawingModPath)) return;
+
+        var groupName = label;
+        var hashIndex = label.IndexOf("##");
+        if (hashIndex >= 0)
+        {
+            groupName = label.Substring(0, hashIndex);
+        }
+
+        if (activeModSettings.TryGetValue(groupName, out var groupInfo) && groupInfo.Type == Penumbra.Api.Enums.GroupType.Single)
+        {
+            var folderName = Path.GetFileName(ActiveDrawingModPath);
+            var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+            if (mod == null) return;
+
+            var manifest = plugin.LoadOptionManifest(mod.FullPath);
+            var key = $"{groupName}/{previewValue}";
+            if (manifest.OptionImages.TryGetValue(key, out var relativePath))
+            {
+                var fullImagePath = Path.Combine(mod.FullPath, relativePath);
+                if (File.Exists(fullImagePath))
+                {
+                    DrawPreviewTriggerIcon(fullImagePath, previewValue);
+                }
+            }
+        }
+    }
+
+    public void OnSelectableDraw(string label)
+    {
+        if (activeModSettings == null || string.IsNullOrEmpty(ActiveDrawingModPath)) return;
+
+        var optionName = label;
+        var hashIndex = label.IndexOf("##");
+        if (hashIndex >= 0)
+        {
+            optionName = label.Substring(0, hashIndex);
+        }
+
+        // Capture whether the selectable list item is hovered before drawing the icon
+        bool isSelectableHovered = ImGui.IsItemHovered();
+
+        foreach (var kvp in activeModSettings)
+        {
+            var groupName = kvp.Key;
+            var options = kvp.Value.Options;
+            if (options.Contains(optionName, StringComparer.OrdinalIgnoreCase))
+            {
+                var folderName = Path.GetFileName(ActiveDrawingModPath);
+                var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+                if (mod == null) return;
+
+                var manifest = plugin.LoadOptionManifest(mod.FullPath);
+                var key = $"{groupName}/{optionName}";
+                if (manifest.OptionImages.TryGetValue(key, out var relativePath))
+                {
+                    var fullImagePath = Path.Combine(mod.FullPath, relativePath);
+                    if (File.Exists(fullImagePath))
+                    {
+                        DrawPreviewTriggerIcon(fullImagePath, optionName, isSelectableHovered);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    private void DrawPreviewTriggerIcon(string fullImagePath, string optionName, bool forceShowTooltip = false)
+    {
+        var icon = plugin.Configuration.OptionIcon == OptionIconStyle.Eye ? FontAwesomeIcon.Eye : FontAwesomeIcon.Image;
+        ImGui.SameLine();
+        
+        ImGui.PushFont(UiBuilder.IconFont);
+        
+        // Render trigger icon as a premium sky blue colored icon next to the option checkbox/dropdown
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 0.8f), icon.ToIconString());
+        ImGui.PopFont();
+
+        if (forceShowTooltip || ImGui.IsItemHovered())
+        {
+            ShowPreviewTooltip(fullImagePath, optionName);
+        }
+    }
+
+
+
+    private void ShowPreviewTooltip(string fullImagePath, string optionName)
+    {
+        var texture = Plugin.TextureProvider.GetFromFile(fullImagePath).GetWrapOrDefault();
+        if (texture != null)
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), optionName);
+            ImGui.Separator();
+            
+            float aspect = 1f;
+            if (texture.Width > 0 && texture.Height > 0)
+            {
+                aspect = (float)texture.Width / texture.Height;
+            }
+            
+            float drawWidth = 250f;
+            float drawHeight = 250f / aspect;
+            
+            ImGui.Image(texture.Handle, new Vector2(drawWidth, drawHeight));
+            ImGui.EndTooltip();
+        }
+    }
 }
+

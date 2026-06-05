@@ -14,7 +14,7 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(400, 350);
+        Size = new Vector2(400, 480);
         SizeCondition = ImGuiCond.Always;
 
         configuration = plugin.Configuration;
@@ -42,7 +42,7 @@ public class ConfigWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("Image Import Crop Method:");
+        ImGui.TextUnformatted("Main Preview Import Crop Method:");
         
         var cropNames = new[] { "No Crop (Preserve Aspect)", "16:9 Aspect Ratio", "1:1 Aspect Ratio (Square)", "4:3 Aspect Ratio" };
         int cropIndex = (int)configuration.CropOption;
@@ -50,6 +50,31 @@ public class ConfigWindow : Window, IDisposable
         if (ImGui.Combo("##CropCombo", ref cropIndex, cropNames, cropNames.Length))
         {
             configuration.CropOption = (CropAspect)cropIndex;
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Mod-Option Preview Crop Method:");
+        
+        var optionCropNames = new[] { "1:1 Aspect Ratio (Square)", "16:9 Aspect Ratio", "No Crop (Preserve Aspect)" };
+        int optionCropIndex = (int)configuration.OptionCrop;
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.Combo("##OptionCropCombo", ref optionCropIndex, optionCropNames, optionCropNames.Length))
+
+        {
+            configuration.OptionCrop = (OptionCropAspect)optionCropIndex;
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Option Preview Trigger Icon:");
+        
+        var optionIconNames = new[] { "Image Frame Icon", "Eye / View Icon" };
+        int optionIconIndex = (int)configuration.OptionIcon;
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.Combo("##OptionIconCombo", ref optionIconIndex, optionIconNames, optionIconNames.Length))
+        {
+            configuration.OptionIcon = (OptionIconStyle)optionIconIndex;
             configuration.Save();
         }
 
@@ -96,7 +121,21 @@ public class ConfigWindow : Window, IDisposable
         if (ImGui.Checkbox("Automatically sync selection with Penumbra", ref autoSync))
         {
             configuration.AutoSyncSelection = autoSync;
+            if (!autoSync)
+            {
+                configuration.HideModList = false;
+            }
             configuration.Save();
+        }
+
+        if (configuration.AutoSyncSelection)
+        {
+            var hideModList = configuration.HideModList;
+            if (ImGui.Checkbox("Hide mod list column in Preview Manager", ref hideModList))
+            {
+                configuration.HideModList = hideModList;
+                configuration.Save();
+            }
         }
     }
 }

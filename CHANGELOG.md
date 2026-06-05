@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.2.0.0] - 2026-06-05
+
+### Added
+- **Mod Option Previews**: Support for adding preview thumbnails to individual mod options within settings groups (both single-select dropdowns and multi-select checkbox lists).
+- **Detour ImGui Hook Overlay**: detoured native ImGui calls (`igCheckbox`, `igBeginCombo`, `igSelectable_Bool`, `igSelectable_BoolPtr`) to display a sky-blue FontAwesome icon next to options with previews, showing the tooltip preview instantly on hover.
+- **Portability Manifest (ppm.json)**: Individual option preview assignments are tracked in a `ppm.json` manifest and stored inside a `ppm/` folder in the mod's directory, enabling full portability.
+- **Sanitized Filenames**: Generated deterministic and human-readable filenames (e.g. `ppm_groupname_optionname_hash.png`) replacing illegal characters to keep mod folder asset structures clean.
+- **Consolidated UI Sub-Panel**: Added a "Mod Option Previews" sub-panel below a divider in the main manager window to easily configure individual option previews (pasting clipboard, loading local files, grabbing URLs, and clearing).
+- **Unassigned Image Scanner**: Added a section to scan for unassigned images in the `ppm/` folder supporting multiple extensions (`.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`) with a live thumbnail preview container.
+- **Hide Mod List Option**: Added configuration checkbox to completely hide the left mod list column when Penumbra auto-sync is enabled.
+
+### Changed
+- Configured size condition to `ImGuiCond.FirstUseEver` to ensure manual resizing of the Preview Manager window persists correctly.
+
+---
+
 ## [1.1.0.0] - 2026-06-05
 
 ### Added

@@ -35,12 +35,19 @@ public class ModInfo
     public bool IsHeliosphereManaged { get; set; } = false;
 }
 
+public class OptionManifest
+{
+    public int Version { get; set; } = 1;
+    public Dictionary<string, string> OptionImages { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
 public enum GrabResult
 {
     Success,
     FailedGeneric,
     NsfwRestricted
 }
+
 
 public sealed class Plugin : IDalamudPlugin
 {
@@ -52,6 +59,8 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
+
 
     private const string CommandName = "/ppm";
     private const string AltCommandName = "/preview";
@@ -63,6 +72,10 @@ public sealed class Plugin : IDalamudPlugin
     public PreviewWindow PreviewWindow { get; init; }
     private PenumbraWindowIntegration PenumbraWindowIntegration { get; init; }
     public FileDialogManager FileDialogManager { get; } = new();
+    internal ImGuiHookManager ImGuiHookManager { get; }
+
+
+
 
     // IPC subscribers to keep mod list synced in real-time
     private EventSubscriber<string>? modAddedSubscriber;
@@ -89,9 +102,12 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow = new ConfigWindow(this);
         PreviewWindow = new PreviewWindow(this);
         PenumbraWindowIntegration = new PenumbraWindowIntegration(this);
+        ImGuiHookManager = new ImGuiHookManager(this, PenumbraWindowIntegration);
+        ImGuiHookManager.Initialize();
 
         WindowSystem.AddWindow(ConfigWindow);
         WindowSystem.AddWindow(PreviewWindow);
+
 
         var commandInfo = new CommandInfo(OnCommand)
         {
@@ -138,6 +154,7 @@ public sealed class Plugin : IDalamudPlugin
         
         WindowSystem.RemoveAllWindows();
 
+        ImGuiHookManager.Dispose();
         PenumbraWindowIntegration.Dispose();
         ConfigWindow.Dispose();
         PreviewWindow.Dispose();
@@ -145,6 +162,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
         CommandManager.RemoveHandler(AltCommandName);
         httpClient.Dispose();
+
     }
 
     private void OnCommand(string command, string args)
@@ -395,7 +413,26 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// <summary>
+    /// Gets available option settings for a mod folder name from Penumbra.
+    /// </summary>
+    public IReadOnlyDictionary<string, (string[] Options, Penumbra.Api.Enums.GroupType Type)>? GetAvailableSettings(string modFolderName)
+    {
+        try
+        {
+            var ipc = new GetAvailableModSettings(PluginInterface);
+            return ipc.Invoke(modFolderName, modFolderName);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Penumbra.GetAvailableModSettings failed for {modFolderName}: {ex.Message}");
+            return null;
+        }
+    }
+
+
+    /// <summary>
     /// Tries to grab an image from a URL or XIVModArchive website and sets it as the preview
+
     /// </summary>
     public async Task<GrabResult> GrabImageFromUrlAsync(ModInfo mod, string url)
     {
@@ -492,6 +529,103 @@ public sealed class Plugin : IDalamudPlugin
 
         return GrabResult.FailedGeneric;
     }
+
+    /// <summary>
+    /// Grabs an image from a URL or XIVModArchive website and sets it as an option preview.
+    /// </summary>
+    public async Task<GrabResult> GrabOptionImageFromUrlAsync(ModInfo mod, string groupName, string optionName, string url)
+    {
+        try
+        {
+            var targetImageUrl = url;
+
+            // 1. If it's a XIVModArchive link, parse it to find the primary image URL
+            if (url.Contains("xivmodarchive.com"))
+            {
+                string html;
+                try
+                {
+                    html = await httpClient.GetStringAsync(url);
+                }
+                catch (HttpRequestException httpEx) when (httpEx.StatusCode == System.Net.HttpStatusCode.Forbidden || httpEx.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    Log.Warning($"Option Grab image failed due to NSFW/Restricted access control: {httpEx.Message}");
+                    return GrabResult.NsfwRestricted;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Option Grab image HTML fetch failed: {ex.Message}");
+                    return GrabResult.FailedGeneric;
+                }
+                
+                var match = Regex.Match(html, @"<meta\s+property=[""']og:image[""']\s+content=[""']([^""']+)[""']");
+                if (match.Success)
+                {
+                    targetImageUrl = match.Groups[1].Value;
+                }
+                else
+                {
+                    match = Regex.Match(html, @"<meta\s+name=[""']twitter:image[""']\s+content=[""']([^""']+)[""']");
+                    if (match.Success)
+                    {
+                        targetImageUrl = match.Groups[1].Value;
+                    }
+                    else
+                    {
+                        var staticMatch = Regex.Match(html, @"https?:\\?/\\?/static\.xivmodarchive\.com\\?/mod-images\\?/[a-fA-F0-9\-]+\.(?:jpg|jpeg|png|webp)", RegexOptions.IgnoreCase);
+                        if (staticMatch.Success)
+                        {
+                            targetImageUrl = staticMatch.Value.Replace("\\", "");
+                        }
+                        else
+                        {
+                            Log.Warning("No images found on the XIVModArchive page for option grab.");
+                            return GrabResult.NsfwRestricted;
+                        }
+                    }
+                }
+            }
+
+            // 2. Download the image
+            var bytes = await httpClient.GetByteArrayAsync(targetImageUrl);
+            var tempFile = Path.Combine(Path.GetTempPath(), $"ppm_option_download_{Guid.NewGuid()}.tmp");
+            await File.WriteAllBytesAsync(tempFile, bytes);
+
+            // 3. Process, crop, and save
+            var success = await Task.Run(() =>
+            {
+                try
+                {
+                    using (var img = System.Drawing.Image.FromFile(tempFile))
+                    {
+                        var relativePath = SaveOptionImage(mod, groupName, optionName, img);
+                        return relativePath != null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Option image processing failed: {ex.Message}");
+                    return false;
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
+            if (success)
+            {
+                return GrabResult.Success;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning($"Grab option image from URL failed: {ex.Message}");
+        }
+
+        return GrabResult.FailedGeneric;
+    }
+
 
     /// <summary>
     /// Crops and scales a local image to a target aspect ratio and saves it as PNG.
@@ -594,4 +728,172 @@ public sealed class Plugin : IDalamudPlugin
             bitmap.Save(targetPath, System.Drawing.Imaging.ImageFormat.Png);
         }
     }
+
+    /// <summary>
+    /// Loads the ppm.json manifest for a given mod path.
+    /// </summary>
+    public OptionManifest LoadOptionManifest(string modFullPath)
+    {
+        var manifestPath = Path.Combine(modFullPath, "ppm.json");
+        if (File.Exists(manifestPath))
+        {
+            try
+            {
+                var text = File.ReadAllText(manifestPath);
+                var manifest = JsonConvert.DeserializeObject<OptionManifest>(text);
+                if (manifest != null)
+                {
+                    if (manifest.OptionImages != null)
+                    {
+                        manifest.OptionImages = new Dictionary<string, string>(manifest.OptionImages, StringComparer.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        manifest.OptionImages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    }
+                    return manifest;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Failed to load ppm.json in {modFullPath}: {ex.Message}");
+            }
+        }
+        return new OptionManifest();
+    }
+
+    /// <summary>
+    /// Saves the ppm.json manifest for a given mod path.
+    /// </summary>
+    public void SaveOptionManifest(string modFullPath, OptionManifest manifest)
+    {
+        var manifestPath = Path.Combine(modFullPath, "ppm.json");
+        try
+        {
+            var json = JsonConvert.SerializeObject(manifest, Formatting.Indented);
+            File.WriteAllText(manifestPath, json);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Failed to save ppm.json in {modFullPath}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Generates a safe, readable filename for an option preview based on group and option names.
+    /// </summary>
+    public string GenerateSafeOptionFilename(string groupName, string optionName)
+    {
+        var combined = $"{groupName}_{optionName}";
+        
+        // Replace invalid filesystem characters and spaces with underscores
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitizedChars = combined.Select(c => 
+        {
+            if (invalidChars.Contains(c) || char.IsWhiteSpace(c))
+                return '_';
+            return c;
+        }).ToArray();
+        
+        var sanitized = new string(sanitizedChars).ToLowerInvariant();
+        
+        // Remove duplicate/consecutive underscores
+        sanitized = Regex.Replace(sanitized, @"_+", "_").Trim('_');
+
+        // Generate a 4-character deterministic hash of the original group/option key to guarantee uniqueness
+        var rawKey = $"{groupName}/{optionName}";
+        uint hash = 2166136261;
+        foreach (char c in rawKey)
+        {
+            hash = (hash ^ c) * 16777619;
+        }
+        var hashStr = (hash & 0xFFFF).ToString("x4");
+
+        // Truncate name if too long to prevent path overflow (leave room for hash and extension)
+        var maxNameLen = 45;
+        if (sanitized.Length > maxNameLen)
+        {
+            sanitized = sanitized.Substring(0, maxNameLen).Trim('_');
+        }
+
+        return $"ppm_{sanitized}_{hashStr}.png";
+    }
+
+    /// <summary>
+    /// Saves an image for a specific option group and name, returning the relative path or null.
+    /// </summary>
+    public string? SaveOptionImage(ModInfo mod, string groupName, string optionName, System.Drawing.Image image)
+    {
+        // First delete old image if any
+        ClearOptionImage(mod, groupName, optionName);
+
+        var ppmDir = Path.Combine(mod.FullPath, "ppm");
+        if (!Directory.Exists(ppmDir))
+        {
+            Directory.CreateDirectory(ppmDir);
+        }
+
+        // Generate a safe readable filename
+        var fileName = GenerateSafeOptionFilename(groupName, optionName);
+        var targetPath = Path.Combine(ppmDir, fileName);
+
+
+        // Crop and scale based on OptionCrop setting
+        var cropOption = CropAspect.Aspect1_1;
+        if (Configuration.OptionCrop == OptionCropAspect.Aspect16_9)
+        {
+            cropOption = CropAspect.Aspect16_9;
+        }
+        else if (Configuration.OptionCrop == OptionCropAspect.NoCrop)
+        {
+            cropOption = CropAspect.NoCrop;
+        }
+
+
+        try
+        {
+            SaveImageFromBitmap(image, targetPath, cropOption);
+            
+            // Register in manifest
+            var manifest = LoadOptionManifest(mod.FullPath);
+            var key = $"{groupName}/{optionName}";
+            manifest.OptionImages[key] = Path.Combine("ppm", fileName).Replace('\\', '/');
+            SaveOptionManifest(mod.FullPath, manifest);
+
+            return manifest.OptionImages[key];
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Failed to save option image for mod {mod.Name}, group {groupName}, option {optionName}: {ex}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Clears the image for a specific option group and name, deleting the file if it exists.
+    /// </summary>
+    public void ClearOptionImage(ModInfo mod, string groupName, string optionName)
+    {
+        var manifest = LoadOptionManifest(mod.FullPath);
+        var key = $"{groupName}/{optionName}";
+        if (manifest.OptionImages.TryGetValue(key, out var relativePath))
+        {
+            var fullPath = Path.Combine(mod.FullPath, relativePath);
+            if (File.Exists(fullPath))
+            {
+                try
+                {
+                    File.Delete(fullPath);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"Failed to delete old option image {fullPath}: {ex.Message}");
+                }
+            }
+            manifest.OptionImages.Remove(key);
+            SaveOptionManifest(mod.FullPath, manifest);
+        }
+    }
 }
+
+
