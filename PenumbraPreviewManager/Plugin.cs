@@ -13,6 +13,7 @@ using Dalamud.Plugin.Services;
 using PenumbraPreviewManager.Windows;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Dalamud.Interface.ImGuiFileDialog;
 using Penumbra.Api.Helpers;
 using Penumbra.Api.IpcSubscribers;
 
@@ -50,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPlayerState PlayerState { get; private set; } = null!;
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
     private const string CommandName = "/ppm";
     private const string AltCommandName = "/preview";
@@ -60,6 +62,7 @@ public sealed class Plugin : IDalamudPlugin
     private ConfigWindow ConfigWindow { get; init; }
     public PreviewWindow PreviewWindow { get; init; }
     private PenumbraWindowIntegration PenumbraWindowIntegration { get; init; }
+    public FileDialogManager FileDialogManager { get; } = new();
 
     // IPC subscribers to keep mod list synced in real-time
     private EventSubscriber<string>? modAddedSubscriber;
@@ -98,6 +101,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.AddHandler(AltCommandName, commandInfo);
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
+        PluginInterface.UiBuilder.Draw += DrawFileDialog;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
 
@@ -128,6 +132,7 @@ public sealed class Plugin : IDalamudPlugin
         modDirectoryChangedSubscriber?.Dispose();
 
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
+        PluginInterface.UiBuilder.Draw -= DrawFileDialog;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         
@@ -149,6 +154,7 @@ public sealed class Plugin : IDalamudPlugin
     
     public void ToggleConfigUi() => ConfigWindow.Toggle();
     public void ToggleMainUi() => PreviewWindow.Toggle();
+    private void DrawFileDialog() => FileDialogManager.Draw();
 
     /// <summary>
     /// Gets the Penumbra mod directory by trying IPC first, then falling back to parsing the config file.
@@ -458,7 +464,7 @@ public sealed class Plugin : IDalamudPlugin
             {
                 try
                 {
-                    CropAndScaleImage(tempFile, targetPath, 800, 450); // Perfect 16:9 preview size
+                    CropAndScaleImage(tempFile, targetPath, Configuration.CropOption);
                     return true;
                 }
                 catch (Exception ex)
@@ -488,41 +494,84 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     /// <summary>
-    /// Crops and scales a local image to a target width and height (aspect ratio) and saves it as PNG.
+    /// Crops and scales a local image to a target aspect ratio and saves it as PNG.
     /// </summary>
-    public void CropAndScaleImage(string sourcePath, string targetPath, int width, int height)
+    public void CropAndScaleImage(string sourcePath, string targetPath, CropAspect cropOption)
     {
         using (var originalImage = System.Drawing.Image.FromFile(sourcePath))
         {
-            SaveImageFromBitmap(originalImage, targetPath, width, height);
+            SaveImageFromBitmap(originalImage, targetPath, cropOption);
         }
     }
 
     /// <summary>
-    /// Crops, scales, and saves a System.Drawing.Image directly to a target path.
+    /// Crops, scales, and saves a System.Drawing.Image directly to a target path based on CropAspect.
     /// </summary>
-    public void SaveImageFromBitmap(System.Drawing.Image originalImage, string targetPath, int width, int height)
+    public void SaveImageFromBitmap(System.Drawing.Image originalImage, string targetPath, CropAspect cropOption)
     {
-        float targetAspect = (float)width / height;
-        float sourceAspect = (float)originalImage.Width / originalImage.Height;
-        
+        int targetWidth, targetHeight;
+        bool shouldCrop = true;
+
+        switch (cropOption)
+        {
+            case CropAspect.Aspect16_9:
+                targetWidth = 800;
+                targetHeight = 450;
+                break;
+            case CropAspect.Aspect1_1:
+                targetWidth = 600;
+                targetHeight = 600;
+                break;
+            case CropAspect.Aspect4_3:
+                targetWidth = 800;
+                targetHeight = 600;
+                break;
+            case CropAspect.NoCrop:
+            default:
+                shouldCrop = false;
+                targetWidth = originalImage.Width;
+                targetHeight = originalImage.Height;
+                int maxSize = 1024;
+                if (targetWidth > maxSize || targetHeight > maxSize)
+                {
+                    float aspect = (float)targetWidth / targetHeight;
+                    if (aspect > 1f)
+                    {
+                        targetWidth = maxSize;
+                        targetHeight = (int)(maxSize / aspect);
+                    }
+                    else
+                    {
+                        targetHeight = maxSize;
+                        targetWidth = (int)(maxSize * aspect);
+                    }
+                }
+                break;
+        }
+
         int cropWidth = originalImage.Width;
         int cropHeight = originalImage.Height;
         int cropX = 0;
         int cropY = 0;
-        
-        if (sourceAspect > targetAspect)
+
+        if (shouldCrop)
         {
-            cropWidth = (int)(originalImage.Height * targetAspect);
-            cropX = (originalImage.Width - cropWidth) / 2;
+            float targetAspect = (float)targetWidth / targetHeight;
+            float sourceAspect = (float)originalImage.Width / originalImage.Height;
+            
+            if (sourceAspect > targetAspect)
+            {
+                cropWidth = (int)(originalImage.Height * targetAspect);
+                cropX = (originalImage.Width - cropWidth) / 2;
+            }
+            else
+            {
+                cropHeight = (int)(originalImage.Width / targetAspect);
+                cropY = (originalImage.Height - cropHeight) / 2;
+            }
         }
-        else
-        {
-            cropHeight = (int)(originalImage.Width / targetAspect);
-            cropY = (originalImage.Height - cropHeight) / 2;
-        }
-        
-        using (var bitmap = new System.Drawing.Bitmap(width, height))
+
+        using (var bitmap = new System.Drawing.Bitmap(targetWidth, targetHeight))
         using (var g = System.Drawing.Graphics.FromImage(bitmap))
         {
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
@@ -531,7 +580,7 @@ public sealed class Plugin : IDalamudPlugin
             g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
             
             g.DrawImage(originalImage, 
-                new System.Drawing.Rectangle(0, 0, width, height), 
+                new System.Drawing.Rectangle(0, 0, targetWidth, targetHeight), 
                 new System.Drawing.Rectangle(cropX, cropY, cropWidth, cropHeight), 
                 System.Drawing.GraphicsUnit.Pixel);
                 

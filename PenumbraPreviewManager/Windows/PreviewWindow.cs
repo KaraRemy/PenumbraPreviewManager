@@ -19,6 +19,21 @@ public class PreviewWindow : Window, IDisposable
     private readonly Plugin plugin;
     private string searchText = string.Empty;
     private ModInfo? selectedMod;
+
+    public ModInfo? SelectedMod
+    {
+        get => selectedMod;
+        set
+        {
+            if (selectedMod != value)
+            {
+                selectedMod = value;
+                localImagePathInput = string.Empty;
+                grabUrlInput = value?.Website ?? string.Empty;
+                statusMessage = string.Empty;
+            }
+        }
+    }
     
     // UI input buffers
     private string localImagePathInput = string.Empty;
@@ -51,10 +66,7 @@ public class PreviewWindow : Window, IDisposable
 
     public void OpenModPage(ModInfo mod)
     {
-        selectedMod = mod;
-        localImagePathInput = string.Empty;
-        grabUrlInput = mod.Website;
-        statusMessage = string.Empty;
+        SelectedMod = mod;
         IsOpen = true;
     }
 
@@ -172,10 +184,7 @@ public class PreviewWindow : Window, IDisposable
                     
                     if (ImGui.Selectable($"{mod.Name}##{mod.FolderName}", isSelected))
                     {
-                        selectedMod = mod;
-                        localImagePathInput = string.Empty;
-                        grabUrlInput = mod.Website; // Pre-fill URL if website field exists
-                        statusMessage = string.Empty;
+                        SelectedMod = mod;
                     }
                 }
             }
@@ -259,14 +268,18 @@ public class PreviewWindow : Window, IDisposable
             var texture = Plugin.TextureProvider.GetFromFile(selectedMod.PreviewImagePath!).GetWrapOrDefault();
             if (texture != null)
             {
-                // Display the image beautifully fit to the column width
+                // Display the image beautifully fit to the column width, keeping its actual aspect ratio
                 var colWidth = ImGui.GetContentRegionAvail().X;
-                // Perfect 16:9 box inside UI
-                var drawHeight = colWidth * 9f / 16f;
+                float aspect = 16f / 9f;
+                if (texture.Width > 0 && texture.Height > 0)
+                {
+                    aspect = (float)texture.Width / texture.Height;
+                }
+                var drawHeight = colWidth / aspect;
                 if (drawHeight > 250)
                 {
                     drawHeight = 250;
-                    colWidth = drawHeight * 16f / 9f;
+                    colWidth = drawHeight * aspect;
                 }
                 
                 ImGui.Image(texture.Handle, new Vector2(colWidth, drawHeight));
@@ -304,7 +317,7 @@ public class PreviewWindow : Window, IDisposable
             {
                 if (addHelp.Success)
                 {
-                    ImGui.TextWrapped("Add an image to display a preview for this mod. It will automatically crop and scale into a high-quality 16:9 PNG preview!");
+                    ImGui.TextWrapped("Add an image to display a preview for this mod. It will automatically crop and scale it into a high-quality PNG preview according to your settings!");
                 }
             }
             ImGui.PopStyleColor();
@@ -363,6 +376,21 @@ public class PreviewWindow : Window, IDisposable
         ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Set Local Image File / Clipboard");
         ImGui.InputTextWithHint("##LocalImagePath", "Paste local path (e.g. C:\\image.png)", ref localImagePathInput, 500);
         ImGui.SameLine();
+
+        if (ImGui.Button("Browse...##BrowseLocalImage"))
+        {
+            plugin.FileDialogManager.OpenFileDialog(
+                "Select Preview Image", 
+                "Image Files{.png,.jpg,.jpeg,.webp,.bmp,.gif}", 
+                (success, path) =>
+                {
+                    if (success)
+                    {
+                        localImagePathInput = path;
+                    }
+                });
+        }
+        ImGui.SameLine();
         
         if (ImGui.Button("Set Local Image"))
         {
@@ -371,7 +399,7 @@ public class PreviewWindow : Window, IDisposable
                 try
                 {
                     var targetPath = Path.Combine(selectedMod.FullPath, "preview.png");
-                    plugin.CropAndScaleImage(localImagePathInput, targetPath, 800, 450);
+                    plugin.CropAndScaleImage(localImagePathInput, targetPath, plugin.Configuration.CropOption);
                     selectedMod.PreviewImagePath = targetPath;
                     plugin.UpdateModTag(selectedMod, true);
                     statusMessage = "Local image cropped, scaled, and set successfully!";
@@ -397,10 +425,10 @@ public class PreviewWindow : Window, IDisposable
                     if (clipboardImage != null)
                     {
                         var targetPath = Path.Combine(selectedMod.FullPath, "preview.png");
-                        plugin.SaveImageFromBitmap(clipboardImage, targetPath, 800, 450);
+                        plugin.SaveImageFromBitmap(clipboardImage, targetPath, plugin.Configuration.CropOption);
                         selectedMod.PreviewImagePath = targetPath;
                         plugin.UpdateModTag(selectedMod, true);
-                        statusMessage = "Image successfully pasted from clipboard, center-cropped to 16:9, and set!";
+                        statusMessage = "Image successfully pasted from clipboard, cropped/scaled according to settings, and set!";
                     }
                     else
                     {

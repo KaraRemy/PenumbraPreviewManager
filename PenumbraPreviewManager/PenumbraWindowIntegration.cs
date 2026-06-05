@@ -3,6 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Diagnostics;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Penumbra.Api.Helpers;
@@ -14,6 +16,9 @@ internal class PenumbraWindowIntegration : IDisposable
 {
     private readonly Plugin plugin;
     private EventSubscriber<string, float, float>? preSettingsTabBarDrawEvent;
+
+    private string grabUrlInput = string.Empty;
+    private ModInfo? activePopupMod;
 
     public PenumbraWindowIntegration(Plugin plugin)
     {
@@ -53,6 +58,12 @@ internal class PenumbraWindowIntegration : IDisposable
         var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
         if (mod == null) return;
 
+        // Automatically sync the selected mod in our Preview Manager if enabled
+        if (plugin.Configuration.AutoSyncSelection)
+        {
+            plugin.PreviewWindow.SelectedMod = mod;
+        }
+
         // If the mod is managed by Heliosphere, let Heliosphere handle the preview and UI drawing to prevent double drawing
         if (mod.IsHeliosphereManaged) return;
 
@@ -63,7 +74,12 @@ internal class PenumbraWindowIntegration : IDisposable
             {
                 var scale = plugin.Configuration.PreviewImageSizePercent / 100f;
                 var colWidth = width * scale;
-                var drawHeight = colWidth * 9f / 16f; // perfect 16:9 aspect ratio
+                float aspect = 16f / 9f;
+                if (texture.Width > 0 && texture.Height > 0)
+                {
+                    aspect = (float)texture.Width / texture.Height;
+                }
+                var drawHeight = colWidth / aspect;
                 
                 // Center the image inside the column width
                 var offsetX = (width - colWidth) / 2f;
@@ -106,11 +122,180 @@ internal class PenumbraWindowIntegration : IDisposable
         }
         else
         {
-            // Mod has no preview! Draw a nice button where the image usually sits
-            if (ImGui.Button("Add Preview Image##PPM_Add", new Vector2(width, 30)))
+            // Mod has no preview! Draw nice button(s) where the image usually sits
+            var buttons = new List<(string Label, Action Action, string Tooltip)>();
+
+            // 1. Open Preview Manager (always first)
+            buttons.Add(("Open Preview Manager", () => plugin.PreviewWindow.OpenModPage(mod), "Open the main Preview Manager window for this mod."));
+
+            // 2. Paste from Clipboard
+            if (plugin.Configuration.ShowClipboardButtonInPenumbra)
             {
-                plugin.PreviewWindow.OpenModPage(mod);
+                buttons.Add(("Paste Clipboard", () => 
+                {
+                    try
+                    {
+                        using var clipboardImage = ClipboardHelper.GetImageFromClipboard();
+                        if (clipboardImage != null)
+                        {
+                            var targetPath = Path.Combine(mod.FullPath, "preview.png");
+                            plugin.SaveImageFromBitmap(clipboardImage, targetPath, plugin.Configuration.CropOption);
+                            mod.PreviewImagePath = targetPath;
+                            plugin.UpdateModTag(mod, true);
+                        }
+                        else
+                        {
+                            Plugin.Log.Warning("No image found in clipboard to paste.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Error($"Failed to paste clipboard image: {ex}");
+                    }
+                }, "Directly paste and crop an image from your clipboard."));
             }
+
+            // 3. Search on XMA
+            if (plugin.Configuration.ShowXmaButtonInPenumbra)
+            {
+                buttons.Add(("Search XMA", () =>
+                {
+                    var searchTerms = mod.FolderName;
+                    if (!string.IsNullOrEmpty(mod.Author) && mod.Author != "Unknown")
+                    {
+                        searchTerms += " " + mod.Author;
+                    }
+                    var escapedTerms = Uri.EscapeDataString(searchTerms);
+                    var searchUrl = $"https://www.xivmodarchive.com/search?sortby=rank&sortorder=desc&basic_text={escapedTerms}&dt_compat=1&types=";
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(searchUrl) { UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.Error($"Failed to open XMA search URL: {ex.Message}");
+                    }
+                }, "Search for this mod on XIVModArchive."));
+            }
+
+            // 4. Browse Local Image
+            if (plugin.Configuration.ShowBrowseButtonInPenumbra)
+            {
+                buttons.Add(("Browse File", () =>
+                {
+                    plugin.FileDialogManager.OpenFileDialog(
+                        "Select Preview Image", 
+                        "Image Files{.png,.jpg,.jpeg,.webp,.bmp,.gif}", 
+                        (success, path) =>
+                        {
+                            if (success)
+                            {
+                                try
+                                {
+                                    var targetPath = Path.Combine(mod.FullPath, "preview.png");
+                                    plugin.CropAndScaleImage(path, targetPath, plugin.Configuration.CropOption);
+                                    mod.PreviewImagePath = targetPath;
+                                    plugin.UpdateModTag(mod, true);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Plugin.Log.Error($"Failed to set local image from browse: {ex}");
+                                }
+                            }
+                        });
+                }, "Browse your local files for a preview image."));
+            }
+
+            // 5. Copy Search Terms
+            if (plugin.Configuration.ShowCopySearchButtonInPenumbra)
+            {
+                buttons.Add(("Copy Search Terms", () =>
+                {
+                    var copyText = mod.FolderName;
+                    if (!string.IsNullOrEmpty(mod.Author) && mod.Author != "Unknown")
+                    {
+                        copyText += " " + mod.Author;
+                    }
+                    ImGui.SetClipboardText(copyText);
+                }, "Copy search terms (folder name and author) to clipboard."));
+            }
+
+            // 6. Grab from URL
+            if (plugin.Configuration.ShowGrabUrlButtonInPenumbra)
+            {
+                buttons.Add(("Grab from URL", () =>
+                {
+                    activePopupMod = mod;
+                    grabUrlInput = mod.Website;
+                    ImGui.OpenPopup("Grab URL Popup##PPM_GrabUrlPopup");
+                }, "Download and crop a preview image from a XIVModArchive or direct link."));
+            }
+
+            // Draw buttons in rows of 2
+            var spacing = ImGui.GetStyle().ItemSpacing.X;
+            var btnWidth = (width - spacing) / 2f;
+
+            for (int i = 0; i < buttons.Count; i++)
+            {
+                bool isLastOdd = (i == buttons.Count - 1) && (buttons.Count % 2 != 0);
+                float currentWidth = isLastOdd ? width : btnWidth;
+
+                if (i > 0 && i % 2 != 0)
+                {
+                    ImGui.SameLine();
+                }
+                
+                if (ImGui.Button($"{buttons[i].Label}##PPM_IntBtn_{i}", new Vector2(currentWidth, 30)))
+                {
+                    buttons[i].Action();
+                }
+                
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(buttons[i].Tooltip);
+                }
+            }
+        }
+
+        // Render the URL grab popup if it is open
+        if (ImGui.BeginPopup("Grab URL Popup##PPM_GrabUrlPopup"))
+        {
+            ImGui.TextUnformatted($"Grab Preview for: {activePopupMod?.Name}");
+            ImGui.InputTextWithHint("##GrabUrlInput", "https://xivmodarchive.com/mod/...", ref grabUrlInput, 500);
+            ImGui.Spacing();
+            
+            if (ImGui.Button("Grab & Scale Image"))
+            {
+                if (activePopupMod != null && !string.IsNullOrEmpty(grabUrlInput))
+                {
+                    var targetMod = activePopupMod;
+                    var url = grabUrlInput;
+                    Task.Run(async () =>
+                    {
+                        var result = await plugin.GrabImageFromUrlAsync(targetMod, url);
+                        if (result == GrabResult.NsfwRestricted)
+                        {
+                            Plugin.ChatGui.PrintError(
+                                "Automatic import failed: This mod is NSFW/Restricted on XIVModArchive. " +
+                                "To add a preview manually, copy the image from your browser and click 'Paste Clipboard'.", 
+                                "PenumbraPreviewManager");
+                        }
+                        else if (result == GrabResult.FailedGeneric)
+                        {
+                            Plugin.ChatGui.PrintError(
+                                "Failed to grab image. Please check the URL or try a direct image link.", 
+                                "PenumbraPreviewManager");
+                        }
+                    });
+                }
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Cancel"))
+            {
+                ImGui.CloseCurrentPopup();
+            }
+            ImGui.EndPopup();
         }
     }
 }

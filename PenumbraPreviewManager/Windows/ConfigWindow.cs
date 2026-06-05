@@ -14,7 +14,7 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(400, 110);
+        Size = new Vector2(400, 350);
         SizeCondition = ImGuiCond.Always;
 
         configuration = plugin.Configuration;
@@ -41,6 +41,62 @@ public class ConfigWindow : Window, IDisposable
             configuration.Save();
         }
 
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Image Import Crop Method:");
+        
+        var cropNames = new[] { "No Crop (Preserve Aspect)", "16:9 Aspect Ratio", "1:1 Aspect Ratio (Square)", "4:3 Aspect Ratio" };
+        int cropIndex = (int)configuration.CropOption;
+        ImGui.SetNextItemWidth(-1);
+        if (ImGui.Combo("##CropCombo", ref cropIndex, cropNames, cropNames.Length))
+        {
+            configuration.CropOption = (CropAspect)cropIndex;
+            configuration.Save();
+        }
 
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Penumbra Window Quick Buttons:");
+        
+        var showClipboard = configuration.ShowClipboardButtonInPenumbra;
+        if (ImGui.Checkbox("Show \"Paste from Clipboard\"", ref showClipboard))
+        {
+            configuration.ShowClipboardButtonInPenumbra = showClipboard;
+            configuration.Save();
+        }
+
+        var showXma = configuration.ShowXmaButtonInPenumbra;
+        if (ImGui.Checkbox("Show \"Search XMA\"", ref showXma))
+        {
+            configuration.ShowXmaButtonInPenumbra = showXma;
+            configuration.Save();
+        }
+
+        var showBrowse = configuration.ShowBrowseButtonInPenumbra;
+        if (ImGui.Checkbox("Show \"Browse File\"", ref showBrowse))
+        {
+            configuration.ShowBrowseButtonInPenumbra = showBrowse;
+            configuration.Save();
+        }
+
+        var showCopy = configuration.ShowCopySearchButtonInPenumbra;
+        if (ImGui.Checkbox("Show \"Copy Search Terms\"", ref showCopy))
+        {
+            configuration.ShowCopySearchButtonInPenumbra = showCopy;
+            configuration.Save();
+        }
+
+        var showGrab = configuration.ShowGrabUrlButtonInPenumbra;
+        if (ImGui.Checkbox("Show \"Grab from URL\"", ref showGrab))
+        {
+            configuration.ShowGrabUrlButtonInPenumbra = showGrab;
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+        var autoSync = configuration.AutoSyncSelection;
+        if (ImGui.Checkbox("Automatically sync selection with Penumbra", ref autoSync))
+        {
+            configuration.AutoSyncSelection = autoSync;
+            configuration.Save();
+        }
     }
 }
