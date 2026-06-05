@@ -25,10 +25,18 @@ internal class ImGuiHookManager : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate byte SelectableBoolPtrDelegate(IntPtr label, IntPtr pSelected, int flags, Vector2 size);
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate byte RadioButtonBoolDelegate(IntPtr label, byte active);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate byte RadioButtonIntPtrDelegate(IntPtr label, IntPtr v, int vButton);
+
     private Hook<CheckboxDelegate>? checkboxHook;
     private Hook<BeginComboDelegate>? beginComboHook;
     private Hook<SelectableBoolDelegate>? selectableBoolHook;
     private Hook<SelectableBoolPtrDelegate>? selectableBoolPtrHook;
+    private Hook<RadioButtonBoolDelegate>? radioButtonBoolHook;
+    private Hook<RadioButtonIntPtrDelegate>? radioButtonIntPtrHook;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
     private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
@@ -109,6 +117,29 @@ internal class ImGuiHookManager : IDisposable
                 Plugin.Log.Warning("Failed to resolve address for igSelectable_BoolPtr.");
             }
 
+            var igRadioButtonBoolAddr = GetProcAddress(moduleHandle, "igRadioButton_Bool");
+            var igRadioButtonIntPtrAddr = GetProcAddress(moduleHandle, "igRadioButton_IntPtr");
+
+            if (igRadioButtonBoolAddr != IntPtr.Zero)
+            {
+                radioButtonBoolHook = Plugin.GameInteropProvider.HookFromAddress<RadioButtonBoolDelegate>(igRadioButtonBoolAddr, RadioButtonBoolDetour);
+                radioButtonBoolHook.Enable();
+            }
+            else
+            {
+                Plugin.Log.Warning("Failed to resolve address for igRadioButton_Bool.");
+            }
+
+            if (igRadioButtonIntPtrAddr != IntPtr.Zero)
+            {
+                radioButtonIntPtrHook = Plugin.GameInteropProvider.HookFromAddress<RadioButtonIntPtrDelegate>(igRadioButtonIntPtrAddr, RadioButtonIntPtrDetour);
+                radioButtonIntPtrHook.Enable();
+            }
+            else
+            {
+                Plugin.Log.Warning("Failed to resolve address for igRadioButton_IntPtr.");
+            }
+
             Plugin.Log.Information("ImGui native hooks initialized successfully.");
         }
         catch (Exception ex)
@@ -123,6 +154,8 @@ internal class ImGuiHookManager : IDisposable
         beginComboHook?.Dispose();
         selectableBoolHook?.Dispose();
         selectableBoolPtrHook?.Dispose();
+        radioButtonBoolHook?.Dispose();
+        radioButtonIntPtrHook?.Dispose();
     }
 
     private byte CheckboxDetour(IntPtr labelPtr, IntPtr v)
@@ -213,6 +246,52 @@ internal class ImGuiHookManager : IDisposable
         catch (Exception ex)
         {
             Plugin.Log.Error($"Error in SelectableBoolPtrDetour: {ex}");
+        }
+
+        return originalRet;
+    }
+
+    private byte RadioButtonBoolDetour(IntPtr labelPtr, byte active)
+    {
+        var originalRet = radioButtonBoolHook != null ? radioButtonBoolHook.Original(labelPtr, active) : (byte)0;
+
+        try
+        {
+            if (integration.IsDrawingPenumbraSettings && integration.ActiveDrawingModPath != null)
+            {
+                var label = GetUtf8String(labelPtr);
+                if (!string.IsNullOrEmpty(label))
+                {
+                    integration.OnCheckboxDraw(label);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error($"Error in RadioButtonBoolDetour: {ex}");
+        }
+
+        return originalRet;
+    }
+
+    private byte RadioButtonIntPtrDetour(IntPtr labelPtr, IntPtr v, int vButton)
+    {
+        var originalRet = radioButtonIntPtrHook != null ? radioButtonIntPtrHook.Original(labelPtr, v, vButton) : (byte)0;
+
+        try
+        {
+            if (integration.IsDrawingPenumbraSettings && integration.ActiveDrawingModPath != null)
+            {
+                var label = GetUtf8String(labelPtr);
+                if (!string.IsNullOrEmpty(label))
+                {
+                    integration.OnCheckboxDraw(label);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Error($"Error in RadioButtonIntPtrDetour: {ex}");
         }
 
         return originalRet;
