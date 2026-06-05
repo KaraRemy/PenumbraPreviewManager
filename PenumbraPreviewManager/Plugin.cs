@@ -13,6 +13,8 @@ using Dalamud.Plugin.Services;
 using PenumbraPreviewManager.Windows;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Penumbra.Api.Helpers;
+using Penumbra.Api.IpcSubscribers;
 
 namespace PenumbraPreviewManager;
 
@@ -59,9 +61,17 @@ public sealed class Plugin : IDalamudPlugin
     public PreviewWindow PreviewWindow { get; init; }
     private PenumbraWindowIntegration PenumbraWindowIntegration { get; init; }
 
+    // IPC subscribers to keep mod list synced in real-time
+    private EventSubscriber<string>? modAddedSubscriber;
+    private EventSubscriber<string>? modDeletedSubscriber;
+    private EventSubscriber<string, string>? modMovedSubscriber;
+    private EventSubscriber<string, bool>? modDirectoryChangedSubscriber;
+
     // In-memory list of mods
     public List<ModInfo> Mods { get; private set; } = new();
     public bool IsScanning { get; private set; } = false;
+    private readonly object scanLock = new();
+    private bool scanQueued = false;
     public string? DetectedModDirectory { get; private set; }
     
     private readonly HttpClient httpClient = new();
@@ -93,12 +103,30 @@ public sealed class Plugin : IDalamudPlugin
 
         PenumbraWindowIntegration.Register();
 
+        // Register to Penumbra IPC events for automatic synchronization
+        try
+        {
+            modAddedSubscriber = ModAdded.Subscriber(PluginInterface, mod => Task.Run(() => ScanModsAsync()));
+            modDeletedSubscriber = ModDeleted.Subscriber(PluginInterface, mod => Task.Run(() => ScanModsAsync()));
+            modMovedSubscriber = ModMoved.Subscriber(PluginInterface, (from, to) => Task.Run(() => ScanModsAsync()));
+            modDirectoryChangedSubscriber = ModDirectoryChanged.Subscriber(PluginInterface, (_, _) => Task.Run(() => ScanModsAsync()));
+        }
+        catch (Exception ex)
+        {
+            Log.Warning($"Failed to subscribe to Penumbra mod lifecycle IPC events: {ex.Message}");
+        }
+
         // Run initial scan in background
         Task.Run(() => ScanModsAsync());
     }
 
     public void Dispose()
     {
+        modAddedSubscriber?.Dispose();
+        modDeletedSubscriber?.Dispose();
+        modMovedSubscriber?.Dispose();
+        modDirectoryChangedSubscriber?.Dispose();
+
         PluginInterface.UiBuilder.Draw -= WindowSystem.Draw;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
@@ -179,90 +207,110 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     public async Task ScanModsAsync()
     {
-        if (IsScanning) return;
-        IsScanning = true;
+        lock (scanLock)
+        {
+            if (IsScanning)
+            {
+                scanQueued = true;
+                return;
+            }
+            IsScanning = true;
+        }
 
         try
         {
-            var modDir = GetModDirectory();
-            if (string.IsNullOrEmpty(modDir) || !Directory.Exists(modDir))
+            bool runAgain;
+            do
             {
-                Log.Warning("Penumbra mod directory not detected or does not exist.");
-                Mods = new List<ModInfo>();
-                return;
-            }
-
-            var scannedMods = new List<ModInfo>();
-            var directories = Directory.GetDirectories(modDir);
-
-            await Task.Run(() =>
-            {
-                foreach (var dir in directories)
+                var modDir = GetModDirectory();
+                if (string.IsNullOrEmpty(modDir) || !Directory.Exists(modDir))
                 {
-                    var folderName = Path.GetFileName(dir);
-                    if (folderName.StartsWith(".") || folderName.StartsWith("_")) continue;
+                    Log.Warning("Penumbra mod directory not detected or does not exist.");
+                    Mods = new List<ModInfo>();
+                    return;
+                }
 
-                    var modInfo = new ModInfo
-                    {
-                        FolderName = folderName,
-                        FullPath = dir,
-                        Name = folderName,
-                        IsHeliosphereManaged = File.Exists(Path.Combine(dir, "heliosphere.json"))
-                    };
+                var scannedMods = new List<ModInfo>();
+                var directories = Directory.GetDirectories(modDir);
 
-                    // Parse meta.json if it exists
-                    var metaPath = Path.Combine(dir, "meta.json");
-                    if (File.Exists(metaPath))
+                await Task.Run(() =>
+                {
+                    foreach (var dir in directories)
                     {
-                        try
+                        var folderName = Path.GetFileName(dir);
+                        if (folderName.StartsWith(".") || folderName.StartsWith("_")) continue;
+
+                        var modInfo = new ModInfo
                         {
-                            var jsonText = File.ReadAllText(metaPath);
-                            var obj = JsonConvert.DeserializeObject<JObject>(jsonText);
-                            if (obj != null)
+                            FolderName = folderName,
+                            FullPath = dir,
+                            Name = folderName,
+                            IsHeliosphereManaged = File.Exists(Path.Combine(dir, "heliosphere.json"))
+                        };
+
+                        // Parse meta.json if it exists
+                        var metaPath = Path.Combine(dir, "meta.json");
+                        if (File.Exists(metaPath))
+                        {
+                            try
                             {
-                                modInfo.Name = obj.Value<string>("Name") ?? folderName;
-                                modInfo.Author = obj.Value<string>("Author") ?? "Unknown";
-                                modInfo.Description = obj.Value<string>("Description") ?? string.Empty;
-                                modInfo.Version = obj.Value<string>("Version") ?? string.Empty;
-                                modInfo.Website = obj.Value<string>("Website") ?? string.Empty;
-                                
-                                var tagsToken = obj["ModTags"];
-                                if (tagsToken != null)
+                                var jsonText = File.ReadAllText(metaPath);
+                                var obj = JsonConvert.DeserializeObject<JObject>(jsonText);
+                                if (obj != null)
                                 {
-                                    modInfo.ModTags = tagsToken.ToObject<List<string>>() ?? new List<string>();
+                                    modInfo.Name = obj.Value<string>("Name") ?? folderName;
+                                    modInfo.Author = obj.Value<string>("Author") ?? "Unknown";
+                                    modInfo.Description = obj.Value<string>("Description") ?? string.Empty;
+                                    modInfo.Version = obj.Value<string>("Version") ?? string.Empty;
+                                    modInfo.Website = obj.Value<string>("Website") ?? string.Empty;
+                                    
+                                    var tagsToken = obj["ModTags"];
+                                    if (tagsToken != null)
+                                    {
+                                        modInfo.ModTags = tagsToken.ToObject<List<string>>() ?? new List<string>();
+                                    }
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Debug($"Failed to parse meta.json in {folderName}: {ex.Message}");
-                        }
-                    }
-
-                    // Check for preview images
-                    var imageExtensions = new[] { ".png", ".jpg", ".jpeg", ".webp" };
-                    var previewNames = new[] { "preview", "cover" };
-                    
-                    foreach (var name in previewNames)
-                    {
-                        foreach (var ext in imageExtensions)
-                        {
-                            var checkPath = Path.Combine(dir, $"{name}{ext}");
-                            if (File.Exists(checkPath))
+                            catch (Exception ex)
                             {
-                                modInfo.PreviewImagePath = checkPath;
-                                break;
+                                Log.Debug($"Failed to parse meta.json in {folderName}: {ex.Message}");
                             }
                         }
-                        if (modInfo.HasPreview) break;
+
+                        // Check for preview images
+                        var imageExtensions = new[] { ".png", ".jpg", ".jpeg", ".webp" };
+                        var previewNames = new[] { "preview", "cover" };
+                        
+                        foreach (var name in previewNames)
+                        {
+                            foreach (var ext in imageExtensions)
+                            {
+                                var checkPath = Path.Combine(dir, $"{name}{ext}");
+                                if (File.Exists(checkPath))
+                                {
+                                    modInfo.PreviewImagePath = checkPath;
+                                    break;
+                                }
+                            }
+                            if (modInfo.HasPreview) break;
+                        }
+
+                        scannedMods.Add(modInfo);
                     }
+                });
 
-                    scannedMods.Add(modInfo);
+                // Sort alphabetically by name
+                Mods = scannedMods.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+                
+                lock (scanLock)
+                {
+                    runAgain = scanQueued;
+                    if (runAgain)
+                    {
+                        scanQueued = false;
+                    }
                 }
-            });
-
-            // Sort alphabetically by name
-            Mods = scannedMods.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            } while (runAgain);
         }
         catch (Exception ex)
         {
@@ -270,7 +318,10 @@ public sealed class Plugin : IDalamudPlugin
         }
         finally
         {
-            IsScanning = false;
+            lock (scanLock)
+            {
+                IsScanning = false;
+            }
         }
     }
 
