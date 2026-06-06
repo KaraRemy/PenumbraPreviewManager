@@ -122,6 +122,8 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
         PluginInterface.UiBuilder.OpenMainUi += ToggleMainUi;
 
+        PluginInterface.UiBuilder.DisableGposeUiHide = true;
+
         PenumbraWindowIntegration.Register();
 
         // Register to Penumbra IPC events for automatic synchronization
