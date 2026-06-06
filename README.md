@@ -19,7 +19,7 @@ A premium companion plugin for FINAL FANTASY XIV (Dalamud) that solves native pr
 - **One-Click XMA Search**: Built-in search button that automatically URL-escapes mod name/author and searches XIVModArchive in your browser.
 - **Heliosphere Auto-Avoidance**: Scans and detects if a mod is managed by Heliosphere, automatically disabling duplicate previews or buttons to keep your Mod Settings page 100% clean and clutter-free!
 - **Image Sizing Slider**: Built-in configuration slider allowing you to customize the preview width (from 10% to 100%, keeping aspect ratio) to perfectly match your UI scaling.
-- **Interactive Controls**: Left-click a preview image inside Penumbra to jump directly to its manager page, or hold **Right-Click** to overlay a gorgeous full-scale zoom.
+- **Interactive Controls**: Left-click a preview image inside Penumbra to jump directly to its manager page, or hold **Middle-Click** to overlay a gorgeous full-scale zoom.
 
 ---
 

@@ -85,7 +85,7 @@ internal class PenumbraWindowIntegration : IDisposable
 
         if (mod.HasPreview)
         {
-            var texture = Plugin.TextureProvider.GetFromFile(mod.PreviewImagePath!).GetWrapOrDefault();
+            var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(mod.PreviewImagePath!)).GetWrapOrDefault();
             if (texture != null)
             {
                 var scale = plugin.Configuration.PreviewImageSizePercent / 100f;
@@ -109,7 +109,7 @@ internal class PenumbraWindowIntegration : IDisposable
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
-                    ImGui.TextUnformatted("Left-click: Open in Preview Manager.\nRight-click: Hold to zoom.");
+                    ImGui.TextUnformatted("Left-click: Open in Preview Manager.\nMiddle-click: Hold to zoom.");
                     ImGui.EndTooltip();
                 }
 
@@ -118,7 +118,7 @@ internal class PenumbraWindowIntegration : IDisposable
                     plugin.PreviewWindow.OpenModPage(mod);
                 }
 
-                if (ImGui.IsItemHovered() && ImGui.IsMouseDown(ImGuiMouseButton.Right))
+                if (ImGui.IsItemHovered() && ImGui.IsMouseDown(ImGuiMouseButton.Middle))
                 {
                     var winSize = ImGuiHelpers.MainViewport.WorkSize;
                     var imgSize = new Vector2(texture.Width, texture.Height);
@@ -447,9 +447,37 @@ internal class PenumbraWindowIntegration : IDisposable
         ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 0.8f), icon.ToIconString());
         ImGui.PopFont();
 
-        if (forceShowTooltip || ImGui.IsItemHovered())
+        bool isIconHovered = ImGui.IsItemHovered();
+
+        if (forceShowTooltip || isIconHovered)
         {
             ShowPreviewTooltip(fullImagePath, optionName);
+        }
+
+        // Trigger large preview overlay when holding Middle-Click on the icon
+        if (isIconHovered && ImGui.IsMouseDown(ImGuiMouseButton.Middle))
+        {
+            var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(fullImagePath)).GetWrapOrDefault();
+            if (texture != null)
+            {
+                var winSize = ImGuiHelpers.MainViewport.WorkSize;
+                var imgSize = new Vector2(texture.Width, texture.Height);
+
+                // Scale image down to fit viewport if it exceeds screen dimensions
+                if (imgSize.X > winSize.X * 0.9f || imgSize.Y > winSize.Y * 0.9f)
+                {
+                    var ratio = Math.Min((winSize.X * 0.9f) / texture.Width, (winSize.Y * 0.9f) / texture.Height);
+                    imgSize *= ratio;
+                }
+
+                var min = new Vector2(winSize.X / 2 - imgSize.X / 2, winSize.Y / 2 - imgSize.Y / 2);
+                var max = new Vector2(winSize.X / 2 + imgSize.X / 2, winSize.Y / 2 + imgSize.Y / 2);
+
+                // Draw background dimming overlay
+                ImGui.GetForegroundDrawList().AddRectFilled(Vector2.Zero, winSize, ImGui.GetColorU32(new Vector4(0f, 0f, 0f, 0.5f)));
+                // Draw the preview image centered
+                ImGui.GetForegroundDrawList().AddImage(texture.Handle, min, max);
+            }
         }
     }
 
@@ -457,7 +485,7 @@ internal class PenumbraWindowIntegration : IDisposable
 
     private void ShowPreviewTooltip(string fullImagePath, string optionName)
     {
-        var texture = Plugin.TextureProvider.GetFromFile(fullImagePath).GetWrapOrDefault();
+        var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(fullImagePath)).GetWrapOrDefault();
         if (texture != null)
         {
             ImGui.BeginTooltip();

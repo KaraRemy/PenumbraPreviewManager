@@ -94,6 +94,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
+        ClearTempCache();
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
         // Set standard browser User-Agent to avoid Cloudflare 403 Forbidden blocks on XIVModArchive and other static servers
@@ -163,6 +164,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(AltCommandName);
         httpClient.Dispose();
 
+        ClearTempCache();
     }
 
     private void OnCommand(string command, string args)
@@ -263,6 +265,24 @@ public sealed class Plugin : IDalamudPlugin
                     {
                         var folderName = Path.GetFileName(dir);
                         if (folderName.StartsWith(".") || folderName.StartsWith("_")) continue;
+
+                        // Clean up legacy .ppm_cache_ files from previous sessions to keep mod directories pristine
+                        try
+                        {
+                            foreach (var cacheFile in Directory.GetFiles(dir, ".ppm_cache_*"))
+                            {
+                                try { File.Delete(cacheFile); } catch { }
+                            }
+                            var ppmSubdir = Path.Combine(dir, "ppm");
+                            if (Directory.Exists(ppmSubdir))
+                            {
+                                foreach (var cacheFile in Directory.GetFiles(ppmSubdir, ".ppm_cache_*"))
+                                {
+                                    try { File.Delete(cacheFile); } catch { }
+                                }
+                            }
+                        }
+                        catch { }
 
                         var modInfo = new ModInfo
                         {
@@ -892,6 +912,94 @@ public sealed class Plugin : IDalamudPlugin
             }
             manifest.OptionImages.Remove(key);
             SaveOptionManifest(mod.FullPath, manifest);
+        }
+    }
+
+    /// <summary>
+    /// Creates a cache-busted copy of the image file in the system temp directory if it has changed,
+    /// resolving caching issues in Dalamud's TextureProvider while keeping mod directories clean.
+    /// </summary>
+    public string GetBustedImagePath(string path)
+    {
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return path;
+
+        try
+        {
+            var cacheDir = Path.Combine(Path.GetTempPath(), "PenumbraPreviewManagerCache");
+            if (!Directory.Exists(cacheDir))
+            {
+                Directory.CreateDirectory(cacheDir);
+            }
+
+            var fileDir = Path.GetDirectoryName(path) ?? string.Empty;
+            uint pathHash = 2166136261;
+            foreach (char c in fileDir)
+            {
+                pathHash = (pathHash ^ c) * 16777619;
+            }
+            var pathHashStr = (pathHash & 0xFFFF).ToString("x4");
+
+            var nameWithoutExt = Path.GetFileNameWithoutExtension(path);
+            var ext = Path.GetExtension(path);
+            var lastWrite = File.GetLastWriteTimeUtc(path).Ticks;
+
+            var cachePath = Path.Combine(cacheDir, $"ppm_{pathHashStr}_{nameWithoutExt}_{lastWrite}{ext}");
+
+            if (!File.Exists(cachePath))
+            {
+                // Clean up previous cache-busted copies for this specific file in the temp directory
+                var searchPattern = $"ppm_{pathHashStr}_{nameWithoutExt}_*{ext}";
+                foreach (var oldFile in Directory.GetFiles(cacheDir, searchPattern))
+                {
+                    try
+                    {
+                        File.Delete(oldFile);
+                    }
+                    catch
+                    {
+                        // File might be locked/in use by Dalamud, ignore
+                    }
+                }
+
+                // Copy the updated file to the new cache-buster path
+                File.Copy(path, cachePath, true);
+            }
+
+            return cachePath;
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to create cache-busted image copy in temp: {ex.Message}");
+            return path;
+        }
+    }
+
+    /// <summary>
+    /// Clears all files in the central temporary cache directory to free up disk space.
+    /// </summary>
+    public void ClearTempCache()
+    {
+        try
+        {
+            var cacheDir = Path.Combine(Path.GetTempPath(), "PenumbraPreviewManagerCache");
+            if (Directory.Exists(cacheDir))
+            {
+                foreach (var file in Directory.GetFiles(cacheDir))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch
+                    {
+                        // File might be in use/locked, skip
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to clear temporary cache: {ex.Message}");
         }
     }
 }

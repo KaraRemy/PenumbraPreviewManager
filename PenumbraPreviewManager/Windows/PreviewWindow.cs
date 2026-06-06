@@ -19,6 +19,7 @@ public class PreviewWindow : Window, IDisposable
     private readonly Plugin plugin;
     private string searchText = string.Empty;
     private ModInfo? selectedMod;
+    private readonly Dictionary<string, (string Group, string Option)> selectedOptionsCache = new();
 
     public ModInfo? SelectedMod
     {
@@ -27,14 +28,29 @@ public class PreviewWindow : Window, IDisposable
         {
             if (selectedMod != value)
             {
+                // Cache the selection of the previous mod before switching
+                if (selectedMod != null)
+                {
+                    selectedOptionsCache[selectedMod.FolderName] = (selectedGroupName, selectedOptionName);
+                }
+
                 selectedMod = value;
                 localImagePathInput = string.Empty;
                 grabUrlInput = value?.Website ?? string.Empty;
                 statusMessage = string.Empty;
 
-                // Reset option previews UI state
-                selectedGroupName = string.Empty;
-                selectedOptionName = string.Empty;
+                // Load the cached option previews UI state or default
+                if (value != null && selectedOptionsCache.TryGetValue(value.FolderName, out var cached))
+                {
+                    selectedGroupName = cached.Group;
+                    selectedOptionName = cached.Option;
+                }
+                else
+                {
+                    selectedGroupName = string.Empty;
+                    selectedOptionName = string.Empty;
+                }
+
                 optionLocalImagePathInput = string.Empty;
                 optionGrabUrlInput = string.Empty;
                 optionStatusMessage = string.Empty;
@@ -298,7 +314,7 @@ public class PreviewWindow : Window, IDisposable
         {
             ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.2f, 1f), "✓ Preview Image Found:");
             
-            var texture = Plugin.TextureProvider.GetFromFile(selectedMod.PreviewImagePath!).GetWrapOrDefault();
+            var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(selectedMod.PreviewImagePath!)).GetWrapOrDefault();
             if (texture != null)
             {
                 // Display the image beautifully fit to the column width, keeping its actual aspect ratio
@@ -519,6 +535,10 @@ public class PreviewWindow : Window, IDisposable
             optionLocalImagePathInput = string.Empty;
             optionGrabUrlInput = string.Empty;
             optionStatusMessage = string.Empty;
+            if (selectedMod != null)
+            {
+                selectedOptionsCache[selectedMod.FolderName] = (selectedGroupName, selectedOptionName);
+            }
         }
 
         // Option selector dropdown
@@ -547,6 +567,10 @@ public class PreviewWindow : Window, IDisposable
             optionLocalImagePathInput = string.Empty;
             optionGrabUrlInput = string.Empty;
             optionStatusMessage = string.Empty;
+            if (selectedMod != null)
+            {
+                selectedOptionsCache[selectedMod.FolderName] = (selectedGroupName, selectedOptionName);
+            }
         }
 
         ImGui.Spacing();
@@ -554,7 +578,7 @@ public class PreviewWindow : Window, IDisposable
         ImGui.Spacing();
 
         // Load the manifest to see if a preview image is registered for this option
-        var manifest = plugin.LoadOptionManifest(selectedMod.FullPath);
+        var manifest = plugin.LoadOptionManifest(selectedMod!.FullPath);
         var key = $"{selectedGroupName}/{selectedOptionName}";
         string? imagePath = null;
         bool hasOptionPreview = manifest.OptionImages.TryGetValue(key, out imagePath) && !string.IsNullOrEmpty(imagePath) && File.Exists(Path.Combine(selectedMod.FullPath, imagePath));
@@ -564,7 +588,7 @@ public class PreviewWindow : Window, IDisposable
             var fullImagePath = Path.Combine(selectedMod.FullPath, imagePath!);
             ImGui.TextColored(new Vector4(0.2f, 0.9f, 0.2f, 1f), $"✓ Preview Image Found for [{selectedOptionName}]:");
             
-            var texture = Plugin.TextureProvider.GetFromFile(fullImagePath).GetWrapOrDefault();
+            var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(fullImagePath)).GetWrapOrDefault();
             if (texture != null)
             {
                 var colWidth = ImGui.GetContentRegionAvail().X;
@@ -803,7 +827,7 @@ public class PreviewWindow : Window, IDisposable
             // Show preview of selected unassigned image
             var chosenPath = unassignedImages[selectedUnassignedIndex];
             var fullImagePath = Path.Combine(selectedMod.FullPath, chosenPath);
-            var texture = Plugin.TextureProvider.GetFromFile(fullImagePath).GetWrapOrDefault();
+            var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(fullImagePath)).GetWrapOrDefault();
             if (texture != null)
             {
                 ImGui.Spacing();
