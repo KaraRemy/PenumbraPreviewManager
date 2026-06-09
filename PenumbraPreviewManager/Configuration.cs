@@ -39,6 +39,7 @@ public class Configuration : IPluginConfiguration
     public bool ShowGrabUrlButtonInPenumbra { get; set; } = false;
     public bool AutoSyncSelection { get; set; } = true;
     public bool HideModList { get; set; } = false;
+    public bool DisableHeliosphereBypass { get; set; } = false;
 
     // Option previews configurations
     public OptionCropAspect OptionCrop { get; set; } = OptionCropAspect.Aspect1_1;

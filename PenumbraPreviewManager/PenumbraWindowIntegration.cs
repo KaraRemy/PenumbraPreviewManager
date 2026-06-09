@@ -80,8 +80,9 @@ internal class PenumbraWindowIntegration : IDisposable
             plugin.PreviewWindow.SelectedMod = mod;
         }
 
-        // If the mod is managed by Heliosphere, let Heliosphere handle the preview and UI drawing to prevent double drawing
-        if (mod.IsHeliosphereManaged) return;
+        // If the mod is managed by Heliosphere and the plugin is active, let Heliosphere handle the preview and UI drawing to prevent double drawing
+        // (unless the user has enabled the manual override).
+        if (mod.IsHeliosphereManaged && plugin.IsHeliosphereActive() && !plugin.Configuration.DisableHeliosphereBypass) return;
 
         if (mod.HasPreview)
         {

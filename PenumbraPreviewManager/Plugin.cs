@@ -91,6 +91,9 @@ public sealed class Plugin : IDalamudPlugin
     public string? DetectedModDirectory { get; private set; }
     
     private readonly HttpClient httpClient = new();
+    
+    private bool isHeliosphereActive = false;
+    private DateTime lastHeliosphereCheck = DateTime.MinValue;
 
     public Plugin()
     {
@@ -432,6 +435,60 @@ public sealed class Plugin : IDalamudPlugin
         {
             Log.Debug($"Penumbra.ReloadMod IPC call failed (Penumbra might not be loaded): {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Checks if the Heliosphere plugin is active and loaded, with a 5-second throttle.
+    /// </summary>
+    public bool IsHeliosphereActive()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - lastHeliosphereCheck).TotalSeconds > 5)
+        {
+            lastHeliosphereCheck = now;
+            try
+            {
+                isHeliosphereActive = CommandManager.Commands.ContainsKey("/heliosphere") || IsHeliosphereLoaded();
+            }
+            catch
+            {
+                isHeliosphereActive = false;
+            }
+        }
+        return isHeliosphereActive;
+    }
+
+    private bool IsHeliosphereLoaded()
+    {
+        try
+        {
+            var installedPluginsProp = PluginInterface.GetType().GetProperty("InstalledPlugins", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (installedPluginsProp == null) return false;
+
+            var installedPlugins = installedPluginsProp.GetValue(PluginInterface) as System.Collections.IEnumerable;
+            if (installedPlugins == null) return false;
+
+            foreach (var plugin in installedPlugins)
+            {
+                var nameProp = plugin.GetType().GetProperty("Name", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                               ?? plugin.GetType().GetProperty("Name", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                var name = nameProp?.GetValue(plugin) as string;
+                if (string.Equals(name, "Heliosphere", StringComparison.OrdinalIgnoreCase))
+                {
+                    var isLoadedProp = plugin.GetType().GetProperty("IsLoaded", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                                       ?? plugin.GetType().GetProperty("IsLoaded", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    if (isLoadedProp != null)
+                    {
+                        return (bool)isLoadedProp.GetValue(plugin)!;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to check if Heliosphere is loaded: {ex}");
+        }
+        return false;
     }
 
     /// <summary>

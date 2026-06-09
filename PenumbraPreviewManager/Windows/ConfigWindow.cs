@@ -14,7 +14,7 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(400, 550);
+        Size = new Vector2(400, 590);
         SizeCondition = ImGuiCond.Always;
 
         configuration = plugin.Configuration;
@@ -117,6 +117,10 @@ public class ConfigWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
+        ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Integration Options");
+        ImGui.Separator();
+        ImGui.Spacing();
+
         var autoSync = configuration.AutoSyncSelection;
         if (ImGui.Checkbox("Automatically sync selection with Penumbra", ref autoSync))
         {
@@ -136,6 +140,18 @@ public class ConfigWindow : Window, IDisposable
                 configuration.HideModList = hideModList;
                 configuration.Save();
             }
+        }
+
+        ImGui.Spacing();
+        var disableHeliosphere = configuration.DisableHeliosphereBypass;
+        if (ImGui.Checkbox("Force PPM previews for Heliosphere mods", ref disableHeliosphere))
+        {
+            configuration.DisableHeliosphereBypass = disableHeliosphere;
+            configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Force PPM to draw previews even for mods managed by Heliosphere.\nNote: This can lead to double preview images if the Heliosphere plugin is running at the same time.");
         }
 
         ImGui.Spacing();
