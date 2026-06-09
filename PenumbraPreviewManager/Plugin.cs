@@ -269,7 +269,12 @@ public sealed class Plugin : IDalamudPlugin
                     foreach (var dir in directories)
                     {
                         var folderName = Path.GetFileName(dir);
-                        if (folderName.StartsWith(".") || folderName.StartsWith("_")) continue;
+                        if (string.Equals(folderName, ".git", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(folderName, ".github", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(folderName, ".vs", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(folderName, ".vscode", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(folderName, ".idea", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(folderName, "__MACOSX", StringComparison.OrdinalIgnoreCase)) continue;
 
                         // Clean up legacy .ppm_cache_ files from previous sessions to keep mod directories pristine
                         try
