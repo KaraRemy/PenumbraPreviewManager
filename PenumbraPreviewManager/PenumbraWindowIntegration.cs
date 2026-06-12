@@ -25,6 +25,11 @@ internal class PenumbraWindowIntegration : IDisposable
     public string? ActiveDrawingModPath { get; private set; }
     private IReadOnlyDictionary<string, (string[] Options, Penumbra.Api.Enums.GroupType Type)>? activeModSettings;
 
+    // Drawing performance cache fields
+    private string? lastDrawDirectory;
+    public ModInfo? ActiveDrawingMod { get; private set; }
+    private Dictionary<string, string>? activeModOptionToGroup;
+
     private string grabUrlInput = string.Empty;
     private ModInfo? activePopupMod;
 
@@ -321,20 +326,49 @@ internal class PenumbraWindowIntegration : IDisposable
         ActiveDrawingModPath = directory;
         IsDrawingPenumbraSettings = true;
         
-        var folderName = Path.GetFileName(directory);
-        activeModSettings = plugin.GetAvailableSettings(folderName);
+        if (directory != lastDrawDirectory)
+        {
+            lastDrawDirectory = directory;
+            var folderName = Path.GetFileName(directory);
+            activeModSettings = plugin.GetAvailableSettings(folderName);
+            
+            ActiveDrawingMod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
+            if (ActiveDrawingMod != null && activeModSettings != null)
+            {
+                activeModOptionToGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var kvp in activeModSettings)
+                {
+                    var groupName = kvp.Key;
+                    foreach (var option in kvp.Value.Options)
+                    {
+                        activeModOptionToGroup[option] = groupName;
+                    }
+                }
+            }
+            else
+            {
+                activeModOptionToGroup = null;
+            }
+        }
     }
 
     private void PostSettingsDrawCallback(string directory)
     {
         IsDrawingPenumbraSettings = false;
         ActiveDrawingModPath = null;
+    }
+
+    public void ClearDrawCache()
+    {
+        lastDrawDirectory = null;
+        ActiveDrawingMod = null;
         activeModSettings = null;
+        activeModOptionToGroup = null;
     }
 
     public void OnCheckboxDraw(string label)
     {
-        if (activeModSettings == null || string.IsNullOrEmpty(ActiveDrawingModPath)) return;
+        if (ActiveDrawingMod == null || activeModOptionToGroup == null) return;
 
         var optionName = label;
         var hashIndex = label.IndexOf("##");
@@ -343,34 +377,20 @@ internal class PenumbraWindowIntegration : IDisposable
             optionName = label.Substring(0, hashIndex);
         }
 
-        foreach (var kvp in activeModSettings)
+        if (activeModOptionToGroup.TryGetValue(optionName, out var groupName))
         {
-            var groupName = kvp.Key;
-            var options = kvp.Value.Options;
-            if (options.Contains(optionName, StringComparer.OrdinalIgnoreCase))
+            var key = $"{groupName}/{optionName}";
+            var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
+            if (validPaths.TryGetValue(key, out var fullImagePath))
             {
-                var folderName = Path.GetFileName(ActiveDrawingModPath);
-                var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-                if (mod == null) return;
-
-                var manifest = plugin.LoadOptionManifest(mod.FullPath);
-                var key = $"{groupName}/{optionName}";
-                if (manifest.OptionImages.TryGetValue(key, out var relativePath))
-                {
-                    var fullImagePath = Path.Combine(mod.FullPath, relativePath);
-                    if (File.Exists(fullImagePath))
-                    {
-                        DrawPreviewTriggerIcon(fullImagePath, optionName);
-                    }
-                }
-                break;
+                DrawPreviewTriggerIcon(fullImagePath, optionName);
             }
         }
     }
 
     public void OnBeginComboDraw(string label, string previewValue)
     {
-        if (activeModSettings == null || string.IsNullOrEmpty(ActiveDrawingModPath)) return;
+        if (ActiveDrawingMod == null || activeModSettings == null) return;
 
         var groupName = label;
         var hashIndex = label.IndexOf("##");
@@ -381,26 +401,18 @@ internal class PenumbraWindowIntegration : IDisposable
 
         if (activeModSettings.TryGetValue(groupName, out var groupInfo) && groupInfo.Type == Penumbra.Api.Enums.GroupType.Single)
         {
-            var folderName = Path.GetFileName(ActiveDrawingModPath);
-            var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-            if (mod == null) return;
-
-            var manifest = plugin.LoadOptionManifest(mod.FullPath);
             var key = $"{groupName}/{previewValue}";
-            if (manifest.OptionImages.TryGetValue(key, out var relativePath))
+            var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
+            if (validPaths.TryGetValue(key, out var fullImagePath))
             {
-                var fullImagePath = Path.Combine(mod.FullPath, relativePath);
-                if (File.Exists(fullImagePath))
-                {
-                    DrawPreviewTriggerIcon(fullImagePath, previewValue);
-                }
+                DrawPreviewTriggerIcon(fullImagePath, previewValue);
             }
         }
     }
 
     public void OnSelectableDraw(string label)
     {
-        if (activeModSettings == null || string.IsNullOrEmpty(ActiveDrawingModPath)) return;
+        if (ActiveDrawingMod == null || activeModOptionToGroup == null) return;
 
         var optionName = label;
         var hashIndex = label.IndexOf("##");
@@ -412,27 +424,13 @@ internal class PenumbraWindowIntegration : IDisposable
         // Capture whether the selectable list item is hovered before drawing the icon
         bool isSelectableHovered = ImGui.IsItemHovered();
 
-        foreach (var kvp in activeModSettings)
+        if (activeModOptionToGroup.TryGetValue(optionName, out var groupName))
         {
-            var groupName = kvp.Key;
-            var options = kvp.Value.Options;
-            if (options.Contains(optionName, StringComparer.OrdinalIgnoreCase))
+            var key = $"{groupName}/{optionName}";
+            var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
+            if (validPaths.TryGetValue(key, out var fullImagePath))
             {
-                var folderName = Path.GetFileName(ActiveDrawingModPath);
-                var mod = plugin.Mods.FirstOrDefault(m => string.Equals(m.FolderName, folderName, StringComparison.OrdinalIgnoreCase));
-                if (mod == null) return;
-
-                var manifest = plugin.LoadOptionManifest(mod.FullPath);
-                var key = $"{groupName}/{optionName}";
-                if (manifest.OptionImages.TryGetValue(key, out var relativePath))
-                {
-                    var fullImagePath = Path.Combine(mod.FullPath, relativePath);
-                    if (File.Exists(fullImagePath))
-                    {
-                        DrawPreviewTriggerIcon(fullImagePath, optionName, isSelectableHovered);
-                    }
-                }
-                break;
+                DrawPreviewTriggerIcon(fullImagePath, optionName, isSelectableHovered);
             }
         }
     }

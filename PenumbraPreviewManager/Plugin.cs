@@ -95,6 +95,11 @@ public sealed class Plugin : IDalamudPlugin
     private bool isHeliosphereActive = false;
     private DateTime lastHeliosphereCheck = DateTime.MinValue;
 
+    // Cache dictionaries for performance optimization
+    private readonly Dictionary<string, OptionManifest> manifestCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, string>> validPathsCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string BustedPath, long LastWriteTicks)> bustedPathCache = new(StringComparer.OrdinalIgnoreCase);
+
     public Plugin()
     {
         ClearTempCache();
@@ -250,6 +255,10 @@ public sealed class Plugin : IDalamudPlugin
 
         try
         {
+            // Clear caching systems to prevent stale cache entries
+            ClearManifestCache();
+            PenumbraWindowIntegration?.ClearDrawCache();
+
             bool runAgain;
             do
             {
@@ -818,32 +827,49 @@ public sealed class Plugin : IDalamudPlugin
     /// </summary>
     public OptionManifest LoadOptionManifest(string modFullPath)
     {
+        if (manifestCache.TryGetValue(modFullPath, out var cached))
+        {
+            return cached;
+        }
+
         var manifestPath = Path.Combine(modFullPath, "ppm.json");
+        OptionManifest manifest;
         if (File.Exists(manifestPath))
         {
             try
             {
                 var text = File.ReadAllText(manifestPath);
-                var manifest = JsonConvert.DeserializeObject<OptionManifest>(text);
-                if (manifest != null)
+                var decoded = JsonConvert.DeserializeObject<OptionManifest>(text);
+                if (decoded != null)
                 {
-                    if (manifest.OptionImages != null)
+                    if (decoded.OptionImages != null)
                     {
-                        manifest.OptionImages = new Dictionary<string, string>(manifest.OptionImages, StringComparer.OrdinalIgnoreCase);
+                        decoded.OptionImages = new Dictionary<string, string>(decoded.OptionImages, StringComparer.OrdinalIgnoreCase);
                     }
                     else
                     {
-                        manifest.OptionImages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        decoded.OptionImages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     }
-                    return manifest;
+                    manifest = decoded;
+                }
+                else
+                {
+                    manifest = new OptionManifest();
                 }
             }
             catch (Exception ex)
             {
                 Log.Error($"Failed to load ppm.json in {modFullPath}: {ex.Message}");
+                manifest = new OptionManifest();
             }
         }
-        return new OptionManifest();
+        else
+        {
+            manifest = new OptionManifest();
+        }
+
+        manifestCache[modFullPath] = manifest;
+        return manifest;
     }
 
     /// <summary>
@@ -856,11 +882,61 @@ public sealed class Plugin : IDalamudPlugin
         {
             var json = JsonConvert.SerializeObject(manifest, Formatting.Indented);
             File.WriteAllText(manifestPath, json);
+            
+            // Update cache
+            manifestCache[modFullPath] = manifest;
+            InvalidateValidPathsCache(modFullPath);
         }
         catch (Exception ex)
         {
             Log.Error($"Failed to save ppm.json in {modFullPath}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Gets all option preview paths that physically exist on disk. Used to eliminate hot-path File.Exists lookups.
+    /// </summary>
+    public Dictionary<string, string> GetValidOptionImagePaths(ModInfo mod)
+    {
+        if (validPathsCache.TryGetValue(mod.FullPath, out var cached))
+        {
+            return cached;
+        }
+
+        var validPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var manifest = LoadOptionManifest(mod.FullPath);
+        if (manifest?.OptionImages != null)
+        {
+            foreach (var kvp in manifest.OptionImages)
+            {
+                var fullImagePath = Path.Combine(mod.FullPath, kvp.Value);
+                if (File.Exists(fullImagePath))
+                {
+                    validPaths[kvp.Key] = fullImagePath;
+                }
+            }
+        }
+
+        validPathsCache[mod.FullPath] = validPaths;
+        return validPaths;
+    }
+
+    /// <summary>
+    /// Invalidates the valid paths cache for a modified mod path.
+    /// </summary>
+    public void InvalidateValidPathsCache(string modFullPath)
+    {
+        validPathsCache.Remove(modFullPath);
+    }
+
+    /// <summary>
+    /// Clears manifest and valid path caches entirely.
+    /// </summary>
+    public void ClearManifestCache()
+    {
+        manifestCache.Clear();
+        validPathsCache.Clear();
+        bustedPathCache.Clear();
     }
 
     /// <summary>
@@ -989,6 +1065,14 @@ public sealed class Plugin : IDalamudPlugin
 
         try
         {
+            var lastWrite = File.GetLastWriteTimeUtc(path).Ticks;
+
+            // Return cached busted path immediately if it's already resolved and valid
+            if (bustedPathCache.TryGetValue(path, out var cached) && cached.LastWriteTicks == lastWrite)
+            {
+                return cached.BustedPath;
+            }
+
             var cacheDir = Path.Combine(Path.GetTempPath(), "PenumbraPreviewManagerCache");
             if (!Directory.Exists(cacheDir))
             {
@@ -1005,8 +1089,6 @@ public sealed class Plugin : IDalamudPlugin
 
             var nameWithoutExt = Path.GetFileNameWithoutExtension(path);
             var ext = Path.GetExtension(path);
-            var lastWrite = File.GetLastWriteTimeUtc(path).Ticks;
-
             var cachePath = Path.Combine(cacheDir, $"ppm_{pathHashStr}_{nameWithoutExt}_{lastWrite}{ext}");
 
             if (!File.Exists(cachePath))
@@ -1029,6 +1111,7 @@ public sealed class Plugin : IDalamudPlugin
                 File.Copy(path, cachePath, true);
             }
 
+            bustedPathCache[path] = (cachePath, lastWrite);
             return cachePath;
         }
         catch (Exception ex)

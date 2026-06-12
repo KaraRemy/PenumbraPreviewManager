@@ -55,6 +55,7 @@ public class PreviewWindow : Window, IDisposable
                 optionGrabUrlInput = string.Empty;
                 optionStatusMessage = string.Empty;
                 selectedUnassignedIndex = 0;
+                unassignedImagesDirty = true;
             }
         }
     }
@@ -73,6 +74,10 @@ public class PreviewWindow : Window, IDisposable
     private string optionStatusMessage = string.Empty;
     private bool optionIsWorking = false;
     private int selectedUnassignedIndex = 0;
+
+    // Cache for unassigned images to avoid scanning directory every frame
+    private readonly List<string> unassignedImagesCache = new();
+    private bool unassignedImagesDirty = true;
 
 
 
@@ -617,6 +622,7 @@ public class PreviewWindow : Window, IDisposable
             {
                 plugin.ClearOptionImage(selectedMod, selectedGroupName, selectedOptionName);
                 optionStatusMessage = "Option preview image removed.";
+                unassignedImagesDirty = true;
             }
         }
         else
@@ -675,6 +681,7 @@ public class PreviewWindow : Window, IDisposable
                             if (result == GrabResult.Success)
                             {
                                 optionStatusMessage = "Successfully downloaded, cropped, and saved option preview!";
+                                unassignedImagesDirty = true;
                             }
                             else if (result == GrabResult.NsfwRestricted)
                             {
@@ -733,6 +740,7 @@ public class PreviewWindow : Window, IDisposable
                         {
                             optionStatusMessage = "Option image set successfully!";
                             optionLocalImagePathInput = string.Empty;
+                            unassignedImagesDirty = true;
                         }
                         else
                         {
@@ -763,6 +771,7 @@ public class PreviewWindow : Window, IDisposable
                         if (relativePath != null)
                         {
                             optionStatusMessage = "Image successfully pasted from clipboard, cropped/scaled, and registered!";
+                            unassignedImagesDirty = true;
                         }
                         else
                         {
@@ -782,30 +791,11 @@ public class PreviewWindow : Window, IDisposable
         }
 
         // 3. Assign from Unassigned Images in ppm/ folder
-        var assignedImages = manifest.OptionImages.Values.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var unassignedImages = new List<string>();
-        var ppmDir = Path.Combine(selectedMod.FullPath, "ppm");
-        if (Directory.Exists(ppmDir))
+        if (unassignedImagesDirty)
         {
-            try
-            {
-                var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif" };
-                var files = Directory.GetFiles(ppmDir)
-                    .Where(file => allowedExtensions.Contains(Path.GetExtension(file)));
-                foreach (var file in files)
-                {
-                    var relativePath = Path.Combine("ppm", Path.GetFileName(file)).Replace('\\', '/');
-                    if (!assignedImages.Contains(relativePath))
-                    {
-                        unassignedImages.Add(relativePath);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Error($"Failed to scan ppm folder: {ex.Message}");
-            }
+            RebuildUnassignedImagesCache();
         }
+        var unassignedImages = unassignedImagesCache;
 
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "Assign Unassigned Image from ppm/");
@@ -860,6 +850,7 @@ public class PreviewWindow : Window, IDisposable
                 
                 optionStatusMessage = $"Assigned image '{displayNames[selectedUnassignedIndex]}' to '{selectedOptionName}'!";
                 selectedUnassignedIndex = 0;
+                unassignedImagesDirty = true;
             }
         }
         else
@@ -873,5 +864,37 @@ public class PreviewWindow : Window, IDisposable
             ImGui.TextColored(new Vector4(1f, 0.8f, 0.2f, 1f), optionStatusMessage);
         }
 
+    }
+
+    private void RebuildUnassignedImagesCache()
+    {
+        unassignedImagesCache.Clear();
+        unassignedImagesDirty = false;
+        if (selectedMod == null) return;
+
+        var manifest = plugin.LoadOptionManifest(selectedMod.FullPath);
+        var assignedImages = manifest.OptionImages.Values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ppmDir = Path.Combine(selectedMod.FullPath, "ppm");
+        if (Directory.Exists(ppmDir))
+        {
+            try
+            {
+                var allowedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif" };
+                var files = Directory.GetFiles(ppmDir)
+                    .Where(file => allowedExtensions.Contains(Path.GetExtension(file)));
+                foreach (var file in files)
+                {
+                    var relativePath = Path.Combine("ppm", Path.GetFileName(file)).Replace('\\', '/');
+                    if (!assignedImages.Contains(relativePath))
+                    {
+                        unassignedImagesCache.Add(relativePath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Error($"Failed to scan ppm folder: {ex.Message}");
+            }
+        }
     }
 }
