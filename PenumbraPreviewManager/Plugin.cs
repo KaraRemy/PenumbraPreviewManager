@@ -295,6 +295,57 @@ public sealed class Plugin : IDalamudPlugin
                             var ppmSubdir = Path.Combine(dir, "ppm");
                             if (Directory.Exists(ppmSubdir))
                             {
+                                try
+                                {
+                                    var di = new DirectoryInfo(ppmSubdir);
+                                    if (Configuration.HideOptionPreviewsFromPenumbra)
+                                    {
+                                        if (!di.Attributes.HasFlag(FileAttributes.Hidden))
+                                        {
+                                            di.Attributes |= FileAttributes.Hidden;
+                                        }
+
+                                        // Also hide all files within ppm/ to ensure they are excluded by Penumbra
+                                        foreach (var file in Directory.GetFiles(ppmSubdir))
+                                        {
+                                            try
+                                            {
+                                                var fi = new FileInfo(file);
+                                                if (!fi.Attributes.HasFlag(FileAttributes.Hidden))
+                                                {
+                                                    fi.Attributes |= FileAttributes.Hidden;
+                                                }
+                                            }
+                                            catch { }
+                                        }
+                                    }
+                                    else
+                                    {
+                                        // Opt-out: Unhide the directory and its contents
+                                        if (di.Attributes.HasFlag(FileAttributes.Hidden))
+                                        {
+                                            di.Attributes &= ~FileAttributes.Hidden;
+                                        }
+
+                                        foreach (var file in Directory.GetFiles(ppmSubdir))
+                                        {
+                                            try
+                                            {
+                                                var fi = new FileInfo(file);
+                                                if (fi.Attributes.HasFlag(FileAttributes.Hidden))
+                                                {
+                                                    fi.Attributes &= ~FileAttributes.Hidden;
+                                                }
+                                            }
+                                            catch { }
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Debug($"Failed to update attributes for ppm subdirectory: {ex.Message}");
+                                }
+
                                 foreach (var cacheFile in Directory.GetFiles(ppmSubdir, ".ppm_cache_*"))
                                 {
                                     try { File.Delete(cacheFile); } catch { }
@@ -990,7 +1041,43 @@ public sealed class Plugin : IDalamudPlugin
         var ppmDir = Path.Combine(mod.FullPath, "ppm");
         if (!Directory.Exists(ppmDir))
         {
-            Directory.CreateDirectory(ppmDir);
+            try
+            {
+                var di = Directory.CreateDirectory(ppmDir);
+                if (Configuration.HideOptionPreviewsFromPenumbra)
+                {
+                    di.Attributes |= FileAttributes.Hidden;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed to create ppm directory: {ex.Message}");
+            }
+        }
+        else
+        {
+            try
+            {
+                var di = new DirectoryInfo(ppmDir);
+                if (Configuration.HideOptionPreviewsFromPenumbra)
+                {
+                    if (!di.Attributes.HasFlag(FileAttributes.Hidden))
+                    {
+                        di.Attributes |= FileAttributes.Hidden;
+                    }
+                }
+                else
+                {
+                    if (di.Attributes.HasFlag(FileAttributes.Hidden))
+                    {
+                        di.Attributes &= ~FileAttributes.Hidden;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed to configure attributes for ppm directory: {ex.Message}");
+            }
         }
 
         // Generate a safe readable filename
@@ -1013,6 +1100,29 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             SaveImageFromBitmap(image, targetPath, cropOption);
+
+            try
+            {
+                var fi = new FileInfo(targetPath);
+                if (Configuration.HideOptionPreviewsFromPenumbra)
+                {
+                    if (!fi.Attributes.HasFlag(FileAttributes.Hidden))
+                    {
+                        fi.Attributes |= FileAttributes.Hidden;
+                    }
+                }
+                else
+                {
+                    if (fi.Attributes.HasFlag(FileAttributes.Hidden))
+                    {
+                        fi.Attributes &= ~FileAttributes.Hidden;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed to configure attributes for saved option image: {ex.Message}");
+            }
             
             // Register in manifest
             var manifest = LoadOptionManifest(mod.FullPath);

@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
@@ -7,6 +8,7 @@ namespace PenumbraPreviewManager.Windows;
 
 public class ConfigWindow : Window, IDisposable
 {
+    private readonly Plugin plugin;
     private readonly Configuration configuration;
 
     public ConfigWindow(Plugin plugin) : base("Penumbra Preview Manager Settings###PPM_Config")
@@ -14,9 +16,10 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(400, 590);
+        Size = new Vector2(400, 630);
         SizeCondition = ImGuiCond.Always;
 
+        this.plugin = plugin;
         configuration = plugin.Configuration;
     }
 
@@ -152,6 +155,25 @@ public class ConfigWindow : Window, IDisposable
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip("Force PPM to draw previews even for mods managed by Heliosphere.\nNote: This can lead to double preview images if the Heliosphere plugin is running at the same time.");
+        }
+
+        ImGui.Spacing();
+        var hideFromPenumbra = configuration.HideOptionPreviewsFromPenumbra;
+        if (ImGui.Checkbox("Hide option previews from Penumbra File Redirections", ref hideFromPenumbra))
+        {
+            configuration.HideOptionPreviewsFromPenumbra = hideFromPenumbra;
+            configuration.Save();
+            
+            // Queue a mod scan to instantly apply or remove the hidden attribute for existing folders/files
+            Task.Run(() => plugin.ScanModsAsync());
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Mark the 'ppm' option preview folders and their files with the system 'Hidden' attribute.\n" +
+                             "This hides them from Penumbra's 'File Redirections' tab to prevent UI clutter.\n" +
+                             "Note: This will also hide the 'ppm' folders in Windows File Explorer unless you have 'Show hidden files' enabled.\n" +
+                             "Normal end mod consumers do not need this; it is mostly useful for mod creators\n" +
+                             "or users who edit file redirections directly.");
         }
 
         ImGui.Spacing();
