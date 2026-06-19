@@ -2,7 +2,7 @@
   "Author": "Tomok",
   "Name": "Penumbra Preview Manager",
   "Punchline": "Manage and grab preview/cover images for local Penumbra mods.",
-  "Description": "A helper tool to easily attach local, XIVModArchive, or direct URL preview/cover images to your Penumbra mods. Also supports local tags to easily filter mods that have preview/cover images inside Penumbra.",
+  "Description": "A helper tool to easily attach local, XIVModArchive, or direct URL preview/cover images to your Penumbra mods.",
   "ApplicableVersion": "any",
   "Tags": [
     "penumbra",
