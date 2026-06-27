@@ -12,6 +12,7 @@
     "xivmodarchive"
   ],
   "DalamudApiLevel": 15,
-  "Version": "1.2.0.9",
+  "Version": "1.2.0.10",
+  "RepoUrl": "https://github.com/KaraRemy/PenumbraPreviewManager",
   "IconUrl": "https://raw.githubusercontent.com/KaraRemy/TomokPlugins/main/PenumbraPreviewManager/icon.png"
 }
