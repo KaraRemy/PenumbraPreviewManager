@@ -185,5 +185,10 @@ public class ConfigWindow : Window, IDisposable
         {
             Dalamud.Utility.Util.OpenLink("https://discord.gg/PvxW4mXaWp");
         }
+        ImGui.SameLine();
+        if (ImGui.Button("Support on Ko-fi"))
+        {
+            Dalamud.Utility.Util.OpenLink("https://ko-fi.com/kararemy");
+        }
     }
 }
