@@ -120,7 +120,7 @@ public sealed class Plugin : IDalamudPlugin
 
         var commandInfo = new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open the Penumbra Preview Manager UI"
+            HelpMessage = "Open the Penumbra Preview Manager UI. Use '/ppm settings' to open settings."
         };
         CommandManager.AddHandler(CommandName, commandInfo);
         CommandManager.AddHandler(AltCommandName, commandInfo);
@@ -179,7 +179,15 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
-        PreviewWindow.Toggle();
+        var cleanedArgs = args?.Trim();
+        if (string.Equals(cleanedArgs, "settings", StringComparison.OrdinalIgnoreCase) || string.Equals(cleanedArgs, "config", StringComparison.OrdinalIgnoreCase))
+        {
+            ToggleConfigUi();
+        }
+        else
+        {
+            PreviewWindow.Toggle();
+        }
     }
     
     public void ToggleConfigUi() => ConfigWindow.Toggle();
@@ -564,7 +572,15 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             var ipc = new GetAvailableModSettings(PluginInterface);
-            return ipc.Invoke(modFolderName, modFolderName);
+            var res = ipc.Invoke(modFolderName, modFolderName);
+            if (res == null) return null;
+
+            // Filter out required single groups that have <= 1 option (matching Penumbra's internal IsOption logic)
+            var filtered = res
+                .Where(kvp => kvp.Value.Item1 != null && kvp.Value.Item1.Length > 1)
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+            return filtered;
         }
         catch (Exception ex)
         {

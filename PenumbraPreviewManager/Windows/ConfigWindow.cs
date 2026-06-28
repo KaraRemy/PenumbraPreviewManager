@@ -16,7 +16,7 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(400, 630);
+        Size = new Vector2(400, 660);
         SizeCondition = ImGuiCond.Always;
 
         this.plugin = plugin;
@@ -41,6 +41,18 @@ public class ConfigWindow : Window, IDisposable
         if (ImGui.SliderInt("##ImageSizeSlider", ref sizePercent, 10, 100, "%d%%"))
         {
             configuration.PreviewImageSizePercent = sizePercent;
+            configuration.Save();
+        }
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted("Middle-Click Preview Zoom Size:");
+        ImGui.SameLine();
+        ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), $"{configuration.MiddleClickZoomPercent}%");
+
+        var zoomPercent = configuration.MiddleClickZoomPercent;
+        if (ImGui.SliderInt("##ZoomSizeSlider", ref zoomPercent, 10, 300, "%d%%"))
+        {
+            configuration.MiddleClickZoomPercent = zoomPercent;
             configuration.Save();
         }
 

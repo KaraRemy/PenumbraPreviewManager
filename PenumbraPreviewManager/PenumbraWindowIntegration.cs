@@ -29,6 +29,8 @@ internal class PenumbraWindowIntegration : IDisposable
     private string? lastDrawDirectory;
     public ModInfo? ActiveDrawingMod { get; private set; }
     private Dictionary<string, string>? activeModOptionToGroup;
+    private Dictionary<string, List<string>>? activeModOptionToGroups;
+    private string? currentActiveGroupContext;
 
     private string grabUrlInput = string.Empty;
     private ModInfo? activePopupMod;
@@ -127,11 +129,12 @@ internal class PenumbraWindowIntegration : IDisposable
                 if (ImGui.IsItemHovered() && ImGui.IsMouseDown(ImGuiMouseButton.Middle))
                 {
                     var winSize = ImGuiHelpers.MainViewport.WorkSize;
-                    var imgSize = new Vector2(texture.Width, texture.Height);
+                    var zoomScale = plugin.Configuration.MiddleClickZoomPercent / 100f;
+                    var imgSize = new Vector2(texture.Width * zoomScale, texture.Height * zoomScale);
 
                     if (imgSize.X > winSize.X || imgSize.Y > winSize.Y)
                     {
-                        var ratio = Math.Min(winSize.X / texture.Width, winSize.Y / texture.Height);
+                        var ratio = Math.Min(winSize.X / imgSize.X, winSize.Y / imgSize.Y);
                         imgSize *= ratio;
                     }
 
@@ -336,18 +339,30 @@ internal class PenumbraWindowIntegration : IDisposable
             if (ActiveDrawingMod != null && activeModSettings != null)
             {
                 activeModOptionToGroup = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                activeModOptionToGroups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
                 foreach (var kvp in activeModSettings)
                 {
                     var groupName = kvp.Key;
                     foreach (var option in kvp.Value.Options)
                     {
-                        activeModOptionToGroup[option] = groupName;
+                        if (!activeModOptionToGroup.ContainsKey(option))
+                        {
+                            activeModOptionToGroup[option] = groupName;
+                        }
+
+                        if (!activeModOptionToGroups.TryGetValue(option, out var gList))
+                        {
+                            gList = new List<string>();
+                            activeModOptionToGroups[option] = gList;
+                        }
+                        gList.Add(groupName);
                     }
                 }
             }
             else
             {
                 activeModOptionToGroup = null;
+                activeModOptionToGroups = null;
             }
         }
     }
@@ -364,6 +379,39 @@ internal class PenumbraWindowIntegration : IDisposable
         ActiveDrawingMod = null;
         activeModSettings = null;
         activeModOptionToGroup = null;
+        activeModOptionToGroups = null;
+        currentActiveGroupContext = null;
+    }
+
+    private string ResolveGroupForOption(string label, string optionName)
+    {
+        if (ActiveDrawingMod == null || activeModOptionToGroup == null || !activeModOptionToGroup.TryGetValue(optionName, out var defaultGroup))
+        {
+            return string.Empty;
+        }
+
+        if (activeModOptionToGroups == null || !activeModOptionToGroups.TryGetValue(optionName, out var gList) || gList.Count <= 1)
+        {
+            if (activeModOptionToGroups != null && activeModOptionToGroups.TryGetValue(optionName, out var singleList) && singleList.Count == 1)
+            {
+                currentActiveGroupContext = singleList[0];
+            }
+            return defaultGroup;
+        }
+
+        if (!string.IsNullOrEmpty(currentActiveGroupContext) && gList.Contains(currentActiveGroupContext, StringComparer.OrdinalIgnoreCase))
+        {
+            return currentActiveGroupContext;
+        }
+
+        var labelMatch = gList.FirstOrDefault(g => label.Contains(g, StringComparison.OrdinalIgnoreCase));
+        if (labelMatch != null)
+        {
+            currentActiveGroupContext = labelMatch;
+            return labelMatch;
+        }
+
+        return defaultGroup;
     }
 
     public void OnCheckboxDraw(string label)
@@ -377,9 +425,10 @@ internal class PenumbraWindowIntegration : IDisposable
             optionName = label.Substring(0, hashIndex);
         }
 
-        if (activeModOptionToGroup.TryGetValue(optionName, out var groupName))
+        var targetGroup = ResolveGroupForOption(label, optionName);
+        if (!string.IsNullOrEmpty(targetGroup))
         {
-            var key = $"{groupName}/{optionName}";
+            var key = $"{targetGroup}/{optionName}";
             var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
             if (validPaths.TryGetValue(key, out var fullImagePath))
             {
@@ -399,7 +448,7 @@ internal class PenumbraWindowIntegration : IDisposable
             groupName = label.Substring(0, hashIndex);
         }
 
-        if (activeModSettings.TryGetValue(groupName, out var groupInfo) && groupInfo.Type == Penumbra.Api.Enums.GroupType.Single)
+        if (!string.IsNullOrEmpty(groupName) && activeModSettings.TryGetValue(groupName, out var groupInfo) && groupInfo.Type == Penumbra.Api.Enums.GroupType.Single)
         {
             var key = $"{groupName}/{previewValue}";
             var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
@@ -424,9 +473,10 @@ internal class PenumbraWindowIntegration : IDisposable
         // Capture whether the selectable list item is hovered before drawing the icon
         bool isSelectableHovered = ImGui.IsItemHovered();
 
-        if (activeModOptionToGroup.TryGetValue(optionName, out var groupName))
+        var targetGroup = ResolveGroupForOption(label, optionName);
+        if (!string.IsNullOrEmpty(targetGroup))
         {
-            var key = $"{groupName}/{optionName}";
+            var key = $"{targetGroup}/{optionName}";
             var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
             if (validPaths.TryGetValue(key, out var fullImagePath))
             {
@@ -460,12 +510,13 @@ internal class PenumbraWindowIntegration : IDisposable
             if (texture != null)
             {
                 var winSize = ImGuiHelpers.MainViewport.WorkSize;
-                var imgSize = new Vector2(texture.Width, texture.Height);
+                var zoomScale = plugin.Configuration.MiddleClickZoomPercent / 100f;
+                var imgSize = new Vector2(texture.Width * zoomScale, texture.Height * zoomScale);
 
                 // Scale image down to fit viewport if it exceeds screen dimensions
                 if (imgSize.X > winSize.X * 0.9f || imgSize.Y > winSize.Y * 0.9f)
                 {
-                    var ratio = Math.Min((winSize.X * 0.9f) / texture.Width, (winSize.Y * 0.9f) / texture.Height);
+                    var ratio = Math.Min((winSize.X * 0.9f) / imgSize.X, (winSize.Y * 0.9f) / imgSize.Y);
                     imgSize *= ratio;
                 }
 

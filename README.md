@@ -37,6 +37,13 @@ To install the **Penumbra Preview Manager** using my custom repository:
 
 ---
 
+## Quick Start Guide
+
+Ready to set up your previews? Check out the step-by-step guide:
+🚀 **[Read the Quick Start Guide](./GETTING_STARTED.md)**
+
+---
+
 ## Support & Community
 
 If you need help, want to report a bug, or suggest new features, join my support Discord server:
@@ -49,8 +56,8 @@ If you enjoy my work and would like to support plugin development, you can buy m
 
 ## FAQ & Troubleshooting
 
-For common questions, performance guidelines, and best practices regarding preview management, check the official FAQ:
-📖 **[Read the FAQ](https://github.com/KaraRemy/TomokPlugins/blob/main/FAQ.md)**
+For detailed settings explanations, common questions, and portability guidelines, check the official FAQ:
+📖 **[Read the FAQ](./FAQ.md)**
 
 ---
 
