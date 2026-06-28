@@ -4,11 +4,11 @@ Welcome to the official FAQ and Configuration reference for **Penumbra Preview M
 
 ---
 
-## 🛠️ Settings & Configuration Breakdown
+## Settings & Configuration Breakdown
 
 Open the settings window using `/ppm settings` in chat or via the Dalamud plugin manager.
 
-### 🎨 Display Options
+### Display Options
 
 - **Penumbra Preview Image Size** (`10% - 100%`)
   Controls the horizontal scale of the main mod preview card drawn inside Penumbra's Mod Settings panel. Adjust this slider to fit your UI scaling and font preferences.
@@ -24,12 +24,12 @@ Open the settings window using `/ppm settings` in chat or via the Dalamud plugin
   Determines how individual option thumbnail previews (in the `ppm/` folder) are cropped during import.
 - **Option Preview Trigger Icon**
   Selects the icon style rendered next to mod options inside Penumbra:
-  - *Eye / View Icon*: Renders a sleek FontAwesome eye icon (`👁`).
-  - *Image Frame Icon*: Renders a classic image frame icon (`🖼`).
+  - *Eye / View Icon*: Renders a FontAwesome eye icon.
+  - *Image Frame Icon*: Renders a classic image frame icon.
 
 ---
 
-### 🔘 Penumbra Window Quick Buttons
+### Penumbra Window Quick Buttons
 
 Customize which action buttons appear on the main preview bar inside Penumbra:
 
@@ -41,7 +41,7 @@ Customize which action buttons appear on the main preview bar inside Penumbra:
 
 ---
 
-### 🔗 Integration Options
+### Integration Options
 
 - **Automatically sync selection with Penumbra**
   When enabled, selecting any mod in Penumbra's mod list instantly updates PPM's active mod view.
@@ -50,15 +50,14 @@ Customize which action buttons appear on the main preview bar inside Penumbra:
 - **Force PPM previews for Heliosphere mods**
   By default, PPM automatically steps aside for mods managed by Heliosphere to avoid UI clutter. Enable this setting if you want PPM to force-draw preview cards on Heliosphere mods regardless.
 - **Hide option previews from Penumbra File Redirections**
-  Disables option preview icons inside Penumbra's advanced File Redirections / Advanced view if you don't like to see a bunch of
-  unused files in there.
+  Disables option preview icons inside Penumbra's advanced File Redirections / Advanced view if you don't like to see a bunch of unused files in there.
 
 ---
 
-## ❓ Frequently Asked Questions
+## Frequently Asked Questions
 
 ### How do option previews work portably?
-Option previews are stored locally inside each mod's directory within a `ppm/` folder and registered in a `ppm.json` manifest. Because they reside inside the mod directory, moving your mod library, switching PCs, or sharing mod packages with friends preserves all option previews automatically!
+Option previews are stored locally inside each mod's directory within a `ppm/` folder and registered in a `ppm.json` manifest. Because they reside inside the mod directory, moving your mod library, switching PCs, or sharing mod packages with friends preserves all option previews automatically.
 
 ### Why are my blue preview icons not showing up in Penumbra?
 1. Ensure Penumbra is open and IPC is enabled.

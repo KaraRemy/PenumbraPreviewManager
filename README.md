@@ -40,24 +40,24 @@ To install the **Penumbra Preview Manager** using my custom repository:
 ## Quick Start Guide
 
 Ready to set up your previews? Check out the step-by-step guide:
-🚀 **[Read the Quick Start Guide](./GETTING_STARTED.md)**
+**[Read the Quick Start Guide](./GETTING_STARTED.md)**
 
 ---
 
 ## Support & Community
 
 If you need help, want to report a bug, or suggest new features, join my support Discord server:
-📢 **[Join the Support Discord](https://discord.gg/PvxW4mXaWp)**
+**[Join the Support Discord](https://discord.gg/PvxW4mXaWp)**
 
 If you enjoy my work and would like to support plugin development, you can buy me a coffee!
-☕ **[Support on Ko-fi](https://ko-fi.com/kararemy)**
+**[Support on Ko-fi](https://ko-fi.com/kararemy)**
 
 ---
 
 ## FAQ & Troubleshooting
 
 For detailed settings explanations, common questions, and portability guidelines, check the official FAQ:
-📖 **[Read the FAQ](./FAQ.md)**
+**[Read the FAQ](./FAQ.md)**
 
 ---
 
