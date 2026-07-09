@@ -508,6 +508,9 @@ internal class PenumbraWindowIntegration : IDisposable
             optionName = label.Substring(0, hashIndex);
         }
 
+        // Capture whether the checkbox/radio button itself is hovered
+        bool isCheckboxHovered = plugin.Configuration.ExtendOptionHoverPreview && ImGui.IsItemHovered();
+
         var targetGroup = ResolveGroupForOption(label, optionName);
         if (!string.IsNullOrEmpty(targetGroup))
         {
@@ -515,7 +518,7 @@ internal class PenumbraWindowIntegration : IDisposable
             var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
             if (validPaths.TryGetValue(key, out var fullImagePath))
             {
-                DrawPreviewTriggerIcon(fullImagePath, optionName);
+                DrawPreviewTriggerIcon(fullImagePath, optionName, isCheckboxHovered);
             }
         }
     }
@@ -531,13 +534,16 @@ internal class PenumbraWindowIntegration : IDisposable
             groupName = label.Substring(0, hashIndex);
         }
 
+        // Capture whether the combo box button itself is hovered
+        bool isComboHovered = plugin.Configuration.ExtendOptionHoverPreview && ImGui.IsItemHovered();
+
         if (!string.IsNullOrEmpty(groupName) && activeModSettings.TryGetValue(groupName, out var groupInfo) && groupInfo.Type == Penumbra.Api.Enums.GroupType.Single)
         {
             var key = $"{groupName}/{previewValue}";
             var validPaths = plugin.GetValidOptionImagePaths(ActiveDrawingMod);
             if (validPaths.TryGetValue(key, out var fullImagePath))
             {
-                DrawPreviewTriggerIcon(fullImagePath, previewValue);
+                DrawPreviewTriggerIcon(fullImagePath, previewValue, isComboHovered);
             }
         }
     }
@@ -554,7 +560,7 @@ internal class PenumbraWindowIntegration : IDisposable
         }
 
         // Capture whether the selectable list item is hovered before drawing the icon
-        bool isSelectableHovered = ImGui.IsItemHovered();
+        bool isSelectableHovered = plugin.Configuration.ExtendOptionHoverPreview && ImGui.IsItemHovered();
 
         var targetGroup = ResolveGroupForOption(label, optionName);
         if (!string.IsNullOrEmpty(targetGroup))

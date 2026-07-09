@@ -94,6 +94,18 @@ public class ConfigWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
+        var extendHover = configuration.ExtendOptionHoverPreview;
+        if (ImGui.Checkbox("Extend option hover previews to label text", ref extendHover))
+        {
+            configuration.ExtendOptionHoverPreview = extendHover;
+            configuration.Save();
+        }
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip("Show the option preview tooltip when hovering over the option's text name,\nin addition to hovering over the preview icon.");
+        }
+
+        ImGui.Spacing();
         ImGui.TextUnformatted("Penumbra Window Quick Buttons:");
         
         var showClipboard = configuration.ShowClipboardButtonInPenumbra;

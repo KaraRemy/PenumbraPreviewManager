@@ -46,6 +46,7 @@ public class Configuration : IPluginConfiguration
     // Option previews configurations
     public OptionCropAspect OptionCrop { get; set; } = OptionCropAspect.NoCrop;
     public OptionIconStyle OptionIcon { get; set; } = OptionIconStyle.Eye;
+    public bool ExtendOptionHoverPreview { get; set; } = false;
 
     // The below exists just to make saving less cumbersome
     public void Save()
