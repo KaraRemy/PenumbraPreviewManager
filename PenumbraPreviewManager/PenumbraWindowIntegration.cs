@@ -282,6 +282,89 @@ internal class PenumbraWindowIntegration : IDisposable
             }
         }
 
+        // Check for pre-made preview pack availability
+        var pack = plugin.GetMatchingPack(mod);
+        if (pack != null)
+        {
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+
+            if (plugin.ActiveDownloadingModPath == mod.FullPath)
+            {
+                // Show progress bar
+                ImGui.PushStyleColor(ImGuiCol.PlotHistogram, new Vector4(0.3f, 0.8f, 1f, 0.8f));
+                ImGui.ProgressBar(plugin.ActiveDownloadProgress, new Vector2(width, 25), plugin.ActiveDownloadStatus ?? "Downloading...");
+                ImGui.PopStyleColor();
+            }
+            else if (!plugin.PackAlreadyInstalled(mod))
+            {
+                // Show download button
+                ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.2f, 0.6f, 0.9f, 0.6f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.2f, 0.7f, 1.0f, 0.8f));
+                ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(0.1f, 0.5f, 0.8f, 0.9f));
+                
+                if (ImGui.Button($"⚡ Download Option Previews Pack##PPM_DownloadPack_{pack.Id}", new Vector2(width, 30)))
+                {
+                    ImGui.OpenPopup($"18+ NSFW Content Warning##PPM_ConfirmNsfwPopup_{pack.Id}");
+                }
+                ImGui.PopStyleColor(3);
+                
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip($"Download and extract 270+ pre-compiled option previews for this mod.\nSize: {pack.PackSize / (1024.0 * 1024.0):F2} MB\nSource: Pixeldrain");
+                }
+
+                // Render NSFW confirmation popup modal
+                var open = true;
+                if (ImGui.BeginPopupModal($"18+ NSFW Content Warning##PPM_ConfirmNsfwPopup_{pack.Id}", ref open, ImGuiWindowFlags.AlwaysAutoResize))
+                {
+                    ImGui.TextColored(new Vector4(1f, 0.3f, 0.3f, 1f), "⚠️ WARNING: Age Gate & Adult Content");
+                    ImGui.Separator();
+                    ImGui.Spacing();
+                    
+                    ImGui.TextUnformatted("This previews pack contains 18+/NSFW explicit materials.");
+                    ImGui.TextUnformatted($"Size: {pack.PackSize / (1024.0 * 1024.0):F2} MB");
+                    ImGui.TextUnformatted("Source Host: Pixeldrain");
+                    ImGui.Spacing();
+                    
+                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), "By proceeding, you confirm that you are at least 18 years");
+                    ImGui.TextColored(new Vector4(0.9f, 0.9f, 0.9f, 1f), "of age and consent to download and view adult content.");
+                    ImGui.Spacing();
+                    ImGui.Separator();
+                    ImGui.Spacing();
+
+                    float btnWidth = (ImGui.GetContentRegionAvail().X - ImGui.GetStyle().ItemSpacing.X) / 2f;
+
+                    if (ImGui.Button("I am 18+ & Download", new Vector2(btnWidth, 30)))
+                    {
+                        Task.Run(async () =>
+                        {
+                            await plugin.DownloadAndInstallPackAsync(mod, pack);
+                        });
+                        ImGui.CloseCurrentPopup();
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.Button("Cancel", new Vector2(btnWidth, 30)))
+                    {
+                        ImGui.CloseCurrentPopup();
+                    }
+                    ImGui.EndPopup();
+                }
+            }
+            else
+            {
+                // Show status that the pack is active
+                ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.4f, 0.8f, 0.4f, 1f));
+                ImGui.TextUnformatted("✓ Option Previews Pack Active");
+                ImGui.PopStyleColor();
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip("The pre-compiled option previews pack is currently installed and active.");
+                }
+            }
+        }
+
         // Render the URL grab popup if it is open
         if (ImGui.BeginPopup("Grab URL Popup##PPM_GrabUrlPopup"))
         {

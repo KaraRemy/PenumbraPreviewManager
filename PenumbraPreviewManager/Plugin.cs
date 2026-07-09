@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.IO.Compression;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -48,6 +49,17 @@ public enum GrabResult
     NsfwRestricted
 }
 
+public class PreMadePack
+{
+    public string Id { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string PackUrl { get; set; } = string.Empty;
+    public long PackSize { get; set; }
+    public string[] FolderSignatures { get; set; } = Array.Empty<string>();
+    public string[] MetaNameSignatures { get; set; } = Array.Empty<string>();
+    public string[] AuthorSignatures { get; set; } = Array.Empty<string>();
+    public string[] WebsiteSignatures { get; set; } = Array.Empty<string>();
+}
 
 public sealed class Plugin : IDalamudPlugin
 {
@@ -89,8 +101,27 @@ public sealed class Plugin : IDalamudPlugin
     private readonly object scanLock = new();
     private bool scanQueued = false;
     public string? DetectedModDirectory { get; private set; }
+
+    public string? ActiveDownloadingModPath { get; set; }
+    public float ActiveDownloadProgress { get; set; }
+    public string? ActiveDownloadStatus { get; set; }
+
+    public static readonly List<PreMadePack> RegisteredPacks = new()
+    {
+        new PreMadePack
+        {
+            Id = "eorzean_nightlife_v3",
+            DisplayName = "Eorzean Nightlife V3 Preview Pack",
+            PackUrl = "https://pixeldrain.com/api/file/zAsBgaKx",
+            PackSize = 12576541, // ~12MB in bytes
+            FolderSignatures = new[] { "Eorzean-Nightlife-V3", "000 Eorzean-Nightlife-V3" },
+            MetaNameSignatures = new[] { "000 Eorzean-Nightlife-V3" },
+            AuthorSignatures = new[] { "Keow MoogleLover >:3" },
+            WebsiteSignatures = new[] { "https://www.mediafire.com/file/bx91w4vh3g7v6u4/Eorzean-Nightlife-V3.pmp/file" }
+        }
+    };
     
-    private readonly HttpClient httpClient = new();
+    private readonly HttpClient httpClient;
     
     private bool isHeliosphereActive = false;
     private DateTime lastHeliosphereCheck = DateTime.MinValue;
@@ -104,6 +135,30 @@ public sealed class Plugin : IDalamudPlugin
     {
         ClearTempCache();
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+
+        // Initialize HttpClient with TLS renegotiation enabled via reflection to resolve Catbox/Cloudflare handshake drops
+        var handler = new HttpClientHandler();
+        try
+        {
+            var sslOptionsProp = typeof(HttpClientHandler).GetProperty("SslOptions", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            if (sslOptionsProp != null)
+            {
+                var sslOptions = sslOptionsProp.GetValue(handler);
+                if (sslOptions != null)
+                {
+                    var allowTlsProp = sslOptions.GetType().GetProperty("AllowTlsRenegotiation", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    if (allowTlsProp != null)
+                    {
+                        allowTlsProp.SetValue(sslOptions, true);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($"Failed to configure TLS renegotiation via reflection: {ex.Message}");
+        }
+        httpClient = new HttpClient(handler);
 
         // Set standard browser User-Agent to avoid Cloudflare 403 Forbidden blocks on XIVModArchive and other static servers
         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -1273,6 +1328,129 @@ public sealed class Plugin : IDalamudPlugin
         catch (Exception ex)
         {
             Log.Debug($"Failed to clear temporary cache: {ex.Message}");
+        }
+    }
+
+    public PreMadePack? GetMatchingPack(ModInfo mod)
+    {
+        return RegisteredPacks.FirstOrDefault(pack =>
+            pack.FolderSignatures.Any(sig => string.Equals(mod.FolderName, sig, StringComparison.OrdinalIgnoreCase)) ||
+            pack.MetaNameSignatures.Any(sig => mod.Name.Contains(sig, StringComparison.OrdinalIgnoreCase)) ||
+            (pack.AuthorSignatures.Length > 0 && !string.IsNullOrEmpty(mod.Author) && pack.AuthorSignatures.Any(sig => string.Equals(mod.Author, sig, StringComparison.OrdinalIgnoreCase) || mod.Author.Contains(sig, StringComparison.OrdinalIgnoreCase))) ||
+            (pack.WebsiteSignatures.Length > 0 && !string.IsNullOrEmpty(mod.Website) && pack.WebsiteSignatures.Any(sig => 
+                string.Equals(mod.Website, sig, StringComparison.OrdinalIgnoreCase) || 
+                mod.Website.Contains("bx91w4vh3g7v6u4", StringComparison.OrdinalIgnoreCase) ||
+                (mod.Website.Contains("Eorzean-Nightlife-V3", StringComparison.OrdinalIgnoreCase) && sig.Contains("Eorzean-Nightlife-V3", StringComparison.OrdinalIgnoreCase))
+            ))
+        );
+    }
+
+    public bool PackAlreadyInstalled(ModInfo mod)
+    {
+        return File.Exists(Path.Combine(mod.FullPath, "ppm.json"));
+    }
+
+    public async Task DownloadAndInstallPackAsync(ModInfo mod, PreMadePack pack)
+    {
+        if (ActiveDownloadingModPath != null) return; // Only allow one download at a time
+
+        ActiveDownloadingModPath = mod.FullPath;
+        ActiveDownloadProgress = 0f;
+        ActiveDownloadStatus = "Starting download...";
+
+        var tempZip = Path.Combine(Path.GetTempPath(), $"ppm_pack_{Guid.NewGuid()}.zip");
+
+        try
+        {
+            // 1. Download ZIP file in one go (forcing HTTP/1.1 and buffering fully to prevent HTTP/2 negotiation errors or Cloudflare stream drops)
+            ActiveDownloadStatus = "Downloading pack...";
+            ActiveDownloadProgress = 0.2f;
+            
+            var request = new HttpRequestMessage(HttpMethod.Get, pack.PackUrl);
+            request.Version = new Version(1, 1);
+            
+            using (var response = await httpClient.SendAsync(request))
+            {
+                response.EnsureSuccessStatusCode();
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                
+                ActiveDownloadProgress = 0.8f;
+                ActiveDownloadStatus = "Saving to temp directory...";
+                await File.WriteAllBytesAsync(tempZip, bytes);
+            }
+            ActiveDownloadProgress = 0.95f;
+
+            ActiveDownloadStatus = "Extracting files...";
+            ActiveDownloadProgress = 0.99f;
+
+            // 2. Extract ZIP
+            await Task.Run(() =>
+            {
+                using (var archive = ZipFile.OpenRead(tempZip))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        var destinationPath = Path.GetFullPath(Path.Combine(mod.FullPath, entry.FullName));
+                        if (!destinationPath.StartsWith(Path.GetFullPath(mod.FullPath) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException("Zip entry attempted to write outside of the mod directory!");
+                        }
+
+                        if (entry.FullName.EndsWith("/"))
+                        {
+                            Directory.CreateDirectory(destinationPath);
+                        }
+                        else
+                        {
+                            var dir = Path.GetDirectoryName(destinationPath);
+                            if (dir != null && !Directory.Exists(dir))
+                            {
+                                Directory.CreateDirectory(dir);
+                            }
+                            entry.ExtractToFile(destinationPath, true);
+                        }
+                    }
+                }
+            });
+
+            ActiveDownloadStatus = "Completing installation...";
+            
+            // Clear caches
+            manifestCache.Remove(mod.FullPath);
+            validPathsCache.Remove(mod.FullPath);
+            bustedPathCache.Clear();
+
+            // Force reload manifest
+            LoadOptionManifest(mod.FullPath);
+            UpdateModTag(mod, true);
+
+            // Rescan mods to load the new folder
+            _ = ScanModsAsync();
+
+            ActiveDownloadStatus = "Completed successfully!";
+            ActiveDownloadProgress = 1f;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Failed to download or install preview pack: {ex}");
+            ActiveDownloadStatus = $"Error: {ex.Message}";
+            ActiveDownloadProgress = -1f;
+        }
+        finally
+        {
+            if (File.Exists(tempZip))
+            {
+                try { File.Delete(tempZip); } catch { }
+            }
+
+            // Keep status visible for a moment then clear
+            await Task.Delay(3000);
+            if (ActiveDownloadingModPath == mod.FullPath)
+            {
+                ActiveDownloadingModPath = null;
+                ActiveDownloadProgress = 0f;
+                ActiveDownloadStatus = null;
+            }
         }
     }
 }
