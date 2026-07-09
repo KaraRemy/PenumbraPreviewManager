@@ -592,8 +592,8 @@ internal class PenumbraWindowIntegration : IDisposable
             ShowPreviewTooltip(fullImagePath, optionName);
         }
 
-        // Trigger large preview overlay when holding Middle-Click on the icon
-        if (isIconHovered && ImGui.IsMouseDown(ImGuiMouseButton.Middle))
+        // Trigger large preview overlay when holding Middle-Click on the icon or text (if configured)
+        if ((isIconHovered || forceShowTooltip) && ImGui.IsMouseDown(ImGuiMouseButton.Middle))
         {
             var texture = Plugin.TextureProvider.GetFromFile(plugin.GetBustedImagePath(fullImagePath)).GetWrapOrDefault();
             if (texture != null)

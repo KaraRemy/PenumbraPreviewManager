@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1.3] - 2026-07-09
+
+### Added
+- **Option Label Zoom**: Extended middle-click zoom behavior to option text labels when the "Extend option hover previews to label text" configuration is enabled.
+
+---
+
+## [1.2.1.2] - 2026-07-09
+
+### Added
+- **Extended Option Hover Previews**: Added a configuration setting `"Extend option hover previews to label text"` to display option preview tooltips when hovering directly over the option's text name, in addition to hovering over the preview icon.
+
+---
+
 ## [1.2.1.1] - 2026-07-09
 
 ### Added
