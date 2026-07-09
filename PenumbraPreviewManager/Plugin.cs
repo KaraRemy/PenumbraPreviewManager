@@ -118,6 +118,17 @@ public sealed class Plugin : IDalamudPlugin
             MetaNameSignatures = new[] { "000 Eorzean-Nightlife-V3" },
             AuthorSignatures = new[] { "Keow MoogleLover >:3" },
             WebsiteSignatures = new[] { "https://www.mediafire.com/file/bx91w4vh3g7v6u4/Eorzean-Nightlife-V3.pmp/file" }
+        },
+        new PreMadePack
+        {
+            Id = "nightlife_plus_v311",
+            DisplayName = "Nightlife+ v3.1.1 Preview Pack",
+            PackUrl = "https://pixeldrain.com/api/file/f6mA2UeK",
+            PackSize = 12580174, // ~12.00MB in bytes
+            FolderSignatures = new[] { "Nightlife+ v3.1.1", "000 Nightlife+ v3.1.1" },
+            MetaNameSignatures = new[] { "000 Nightlife+ v3.1.1", "Nightlife+" },
+            AuthorSignatures = new[] { "Fides Praeministra" },
+            WebsiteSignatures = new[] { "https://fides-praeministra.github.io/nightlife-plus/" }
         }
     };
     
