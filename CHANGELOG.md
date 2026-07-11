@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1.4] - 2026-07-11
+
+### Changed
+- **Asset Hosting**: Migrated pre-made preview pack hosting from Pixeldrain to Backblaze B2 public storage, resolving broken download/extraction issues.
+
+---
+
 ## [1.2.1.3] - 2026-07-09
 
 ### Added

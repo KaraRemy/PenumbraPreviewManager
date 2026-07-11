@@ -112,7 +112,7 @@ public sealed class Plugin : IDalamudPlugin
         {
             Id = "eorzean_nightlife_v3",
             DisplayName = "Eorzean Nightlife V3 Preview Pack",
-            PackUrl = "https://pixeldrain.com/api/file/zAsBgaKx",
+            PackUrl = "https://f003.backblazeb2.com/file/TomokPlugins/eorzean_nightlife_v3_ppm.zip",
             PackSize = 12576541, // ~12MB in bytes
             FolderSignatures = new[] { "Eorzean-Nightlife-V3", "000 Eorzean-Nightlife-V3" },
             MetaNameSignatures = new[] { "000 Eorzean-Nightlife-V3" },
@@ -123,7 +123,7 @@ public sealed class Plugin : IDalamudPlugin
         {
             Id = "nightlife_plus_v311",
             DisplayName = "Nightlife+ v3.1.1 Preview Pack",
-            PackUrl = "https://pixeldrain.com/api/file/f6mA2UeK",
+            PackUrl = "https://f003.backblazeb2.com/file/TomokPlugins/nightlife_plus_v311_ppm.zip",
             PackSize = 12580174, // ~12.00MB in bytes
             FolderSignatures = new[] { "Nightlife+ v3.1.1", "000 Nightlife+ v3.1.1" },
             MetaNameSignatures = new[] { "000 Nightlife+ v3.1.1", "Nightlife+" },
