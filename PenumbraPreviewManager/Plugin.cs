@@ -287,8 +287,31 @@ public sealed class Plugin : IDalamudPlugin
         // 2. Fall back to config reading
         try
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var configPath = Path.Combine(appData, "XIVLauncher", "pluginConfigs", "Penumbra.json");
+            string? configPath = null;
+            try
+            {
+                var configDir = PluginInterface.ConfigDirectory.FullName;
+                var parentDir = Path.GetDirectoryName(configDir);
+                if (!string.IsNullOrEmpty(parentDir))
+                {
+                    var siblingConfig = Path.Combine(parentDir, "Penumbra.json");
+                    if (File.Exists(siblingConfig))
+                    {
+                        configPath = siblingConfig;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug($"Failed to resolve sibling Penumbra.json path: {ex.Message}");
+            }
+
+            if (configPath == null)
+            {
+                var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                configPath = Path.Combine(appData, "XIVLauncher", "pluginConfigs", "Penumbra.json");
+            }
+
             if (File.Exists(configPath))
             {
                 var content = File.ReadAllText(configPath);
